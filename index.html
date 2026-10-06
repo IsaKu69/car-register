@@ -21,11 +21,13 @@
 </head>
 <body>
 
+  <!-- จอแสดงสถานะการโหลด -->
   <div id="loading">
     <div class="spinner-border text-primary" role="status" style="width: 3.5rem; height: 3.5rem;"></div>
     <h5 class="mt-3 fw-bold text-primary" id="loadingText">กำลังเชื่อมต่อ LINE...</h5>
   </div>
 
+  <!-- การ์ดฟอร์มลงทะเบียน -->
   <div class="card card-custom d-none" id="mainCard">
     <div class="header-bar">
       <h5 class="fw-bold mb-1"><i class="bi bi-car-front-fill me-2"></i>ระบบใช้รถส่วนกลาง</h5>
@@ -85,6 +87,7 @@
     </div>
   </div>
 
+  <!-- การ์ดแจ้งเตือนสำหรับผู้ที่เคยลงทะเบียนแล้ว -->
   <div class="card card-custom p-4 text-center d-none" id="alreadyRegisteredCard">
     <div class="my-3"><i class="bi bi-patch-check-fill text-success" style="font-size: 4rem;"></i></div>
     <h4 class="fw-bold text-dark">ลงทะเบียนเรียบร้อยแล้ว</h4>
@@ -102,10 +105,9 @@
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script>
     const LIFF_ID = "2011882870-Bs61VIj2";
-    // นำลิงก์ Web App /exec ของคุณสุวัฒน์มาวางตรงนี้
     const GAS_URL = "https://script.google.com/macros/s/AKfycbYXCOnJ4pCR0vg6bMcfMdPSMGbRcQJGwunJLVcnJro4ulNQeS22D_Tnkqwa9EpB5AF7/exec";
 
-    var rosterList = [];
+    let rosterList = [];
 
     window.onload = async () => {
       try {
@@ -121,8 +123,14 @@
         document.getElementById("lineName").textContent = profile.displayName;
         if (profile.pictureUrl) document.getElementById("userAvatar").src = profile.pictureUrl;
 
-        // เรียกตรวจสอบสถานะจาก Apps Script
-        const res = await fetch(`${GAS_URL}?action=checkUser&lineUid=${profile.userId}`).then(r => r.json());
+        // เรียกตรวจสอบข้อมูลผู้ใช้ โดยตั้ง redirect: "follow"
+        const response = await fetch(`${GAS_URL}?action=checkUser&lineUid=${encodeURIComponent(profile.userId)}`, {
+          method: "GET",
+          redirect: "follow"
+        });
+        
+        if (!response.ok) throw new Error("HTTP Status " + response.status);
+        const res = await response.json();
         handleCheckResult(res);
 
       } catch (err) {
@@ -147,7 +155,11 @@
 
     async function loadPreloadedRoster() {
       try {
-        const data = await fetch(`${GAS_URL}?action=getRoster`).then(r => r.json());
+        const response = await fetch(`${GAS_URL}?action=getRoster`, {
+          method: "GET",
+          redirect: "follow"
+        });
+        const data = await response.json();
         rosterList = data || [];
         const select = document.getElementById("selectRoster");
         select.innerHTML = '<option value="">-- กรุณาเลือกชื่อ / ID ของท่าน --</option>';
@@ -162,7 +174,7 @@
           select.appendChild(opt);
         });
       } catch (err) {
-        console.error(err);
+        console.error("Error loading roster:", err);
       }
     }
 
@@ -226,11 +238,14 @@
       btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>กำลังบันทึกข้อมูล...';
 
       try {
-        const res = await fetch(GAS_URL, {
+        const response = await fetch(GAS_URL, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify(payload)
-        }).then(r => r.json());
+          body: JSON.stringify(payload),
+          redirect: "follow"
+        });
+
+        const res = await response.json();
 
         if (res.success) {
           Swal.fire({ icon: 'success', title: 'สำเร็จ!', text: 'ผูกสิทธิ์เรียบร้อยแล้ว' }).then(() => {
