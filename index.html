@@ -247,36 +247,68 @@
       });
     }
 
-    window.onload = async () => {
+window.onload = async () => {
+      // ⚡ สเต็ปที่ 1: ดึงแคชเดิมในเครื่องมาแสดงทันทีก่อน (ขึ้นจอใน 0.1 - 0.2 วินาที ไม่ต้องรอเน็ต)
+      const cachedUser = localStorage.getItem("fleet_user_profile");
+      if (cachedUser) {
+        try {
+          currentUser = JSON.parse(cachedUser);
+          document.getElementById("portalUserName").textContent = currentUser.fullname;
+          document.getElementById("loading").style.display = "none";
+          document.getElementById("scanPortalCard").classList.remove("d-none");
+        } catch (e) {
+          localStorage.removeItem("fleet_user_profile");
+        }
+      }
+
+      // ⚡ สเต็ปที่ 2: รันการเชื่อมต่อ LINE LIFF และตรวจสอบสิทธิ์เบื้องหลัง
       try {
         await liff.init({ liffId: LIFF_ID });
 
-        if (!liff.isLoggedIn()) {
-          liff.login();
-          return;
-        }
+        if (liff.isInClient() || liff.isLoggedIn()) {
+          const profile = await liff.getProfile();
+          document.getElementById("lineUid").value = profile.userId;
+          document.getElementById("lineName").textContent = profile.displayName;
+          if (profile.pictureUrl) document.getElementById("userAvatar").src = profile.pictureUrl;
 
-        const profile = await liff.getProfile();
-        document.getElementById("lineUid").value = profile.userId;
-        document.getElementById("lineName").textContent = profile.displayName;
-        if (profile.pictureUrl) document.getElementById("userAvatar").src = profile.pictureUrl;
+          // ถ้าไม่มีแคชในเครื่อง (เข้าครั้งแรก) หรือ UID ในเครื่องไม่ตรงกับ LINE ปัจจุบัน ค่อยยิงถาม GAS
+          if (!currentUser || currentUser.lineUid !== profile.userId) {
+            const res = await fetchJSONP(`${GAS_URL}?action=checkUser&lineUid=${encodeURIComponent(profile.userId)}`);
+            document.getElementById("loading").style.display = "none";
 
-        const res = await fetchJSONP(`${GAS_URL}?action=checkUser&lineUid=${encodeURIComponent(profile.userId)}`);
-        document.getElementById("loading").style.display = "none";
+            if (res.registered) {
+              currentUser = res.userData;
+              currentUser.lineUid = profile.userId;
+              // บันทึกลงเครื่องไว้ ครั้งต่อไปเปิดจะเร็วทันที
+              localStorage.setItem("fleet_user_profile", JSON.stringify(currentUser));
 
-        if (res.registered) {
-          currentUser = res.userData;
-          currentUser.lineUid = profile.userId;
-          document.getElementById("portalUserName").textContent = res.userData.fullname;
-          document.getElementById("scanPortalCard").classList.remove("d-none");
+              document.getElementById("portalUserName").textContent = res.userData.fullname;
+              document.getElementById("scanPortalCard").classList.remove("d-none");
+            } else {
+              document.getElementById("mainCard").classList.remove("d-none");
+              loadPreloadedRoster();
+            }
+          }
         } else {
-          document.getElementById("mainCard").classList.remove("d-none");
-          loadPreloadedRoster();
+          // โหมดเบราว์เซอร์ PC นอก LINE
+          if (!currentUser) {
+            document.getElementById("loading").style.display = "none";
+            currentUser = {
+              fullname: "เจ้าหน้าที่ส่วนกลาง (PC)",
+              lineUid: "PC-DESKTOP",
+              role: "หัวหน้างาน"
+            };
+            document.getElementById("portalUserName").textContent = currentUser.fullname;
+            document.getElementById("scanPortalCard").classList.remove("d-none");
+          }
         }
 
       } catch (err) {
-        document.getElementById("loading").style.display = "none";
-        Swal.fire("ข้อผิดพลาด", "ไม่สามารถเริ่มต้นระบบได้: " + err.message, "error");
+        // แม้ LIFF จะ error ถ้ามีแคชเดิมอยู่แล้วก็ยังใช้งานได้ต่อเนื่อง
+        if (!cachedUser) {
+          document.getElementById("loading").style.display = "none";
+          Swal.fire("ข้อผิดพลาด", "ไม่สามารถเริ่มต้นระบบได้: " + err.message, "error");
+        }
       }
     };
 
@@ -575,29 +607,73 @@
       else input.value = val;
     }
 
-    async function handleSubmit(e) {
+async function handleSubmit(e) {
       e.preventDefault();
+
+      const lineUid = document.getElementById("lineUid").value.trim();
+      if (!lineUid) {
+        return Swal.fire("แจ้งเตือน", "ไม่พบรหัส LINE UID กรุณารอระบบโหลดหรือเปิดผ่าน LINE", "warning");
+      }
+
+      const phoneRaw = document.getElementById("phone").value.trim();
+      const phoneDigits = phoneRaw.replace(/[^0-9]/g, "");
+      if (phoneDigits.length !== 10) {
+        return Swal.fire("แจ้งเตือน", "กรุณาระบุเบอร์โทรศัพท์ให้ครบ 10 หลัก", "warning");
+      }
+
       const mode = document.getElementById("currentMode").value;
-      const phone = document.getElementById("phone").value.trim();
+      let payload = {
+        action: "registerUser",
+        lineUid: lineUid,
+        mode: mode,
+        phone: phoneRaw
+      };
 
-      if (!phone || phone.length < 11) return Swal.fire("แจ้งเตือน", "กรุณากรอกเบอร์โทรศัพท์ให้ครบถ้วน", "warning");
-
-      let payload = { action: "registerUser", lineUid: document.getElementById("lineUid").value, mode: mode, phone: phone };
+      // ตัวแปรสำหรับบันทึกโปรไฟล์ลง LocalStorage
+      let profileCache = {
+        lineUid: lineUid,
+        phone: phoneRaw,
+        status: "พร้อมใช้งาน"
+      };
 
       if (mode === "existing") {
         const selectIdx = document.getElementById("selectRoster").value;
-        if (selectIdx === "") return Swal.fire("แจ้งเตือน", "กรุณาเลือกรายชื่อของท่าน", "warning");
-        payload.rowNum = rosterList[selectIdx].rowNum;
-        payload.fullname = rosterList[selectIdx].fullname;
-      } else {
-        payload.empId = document.getElementById("empId").value.trim();
-        payload.fullname = document.getElementById("fullname").value.trim();
-        payload.position = document.getElementById("position").value.trim();
-        payload.department = document.getElementById("department").value.trim();
-        payload.role = document.getElementById("role").value;
-        if (!payload.fullname || !payload.position || !payload.department) {
-          return Swal.fire("แจ้งเตือน", "กรุณากรอกข้อมูลให้ครบทุกช่อง", "warning");
+        if (selectIdx === "") {
+          return Swal.fire("แจ้งเตือน", "กรุณาเลือกรายชื่อของท่านจากรายการ", "warning");
         }
+        const selectedPerson = rosterList[selectIdx];
+        payload.rowNum = selectedPerson.rowNum;
+        payload.fullname = selectedPerson.fullname;
+
+        // จัดเก็บข้อมูลลงแคชเครื่อง
+        profileCache.userId = selectedPerson.userId || "";
+        profileCache.fullname = selectedPerson.fullname;
+        profileCache.position = selectedPerson.position || "-";
+        profileCache.department = selectedPerson.department || "-";
+        profileCache.role = selectedPerson.role || "ผู้ใช้รถทั่วไป";
+      } else {
+        const empId = document.getElementById("empId").value.trim();
+        const fullname = document.getElementById("fullname").value.trim();
+        const position = document.getElementById("position").value.trim();
+        const department = document.getElementById("department").value.trim();
+        const role = document.getElementById("role").value;
+
+        if (!fullname || !position || !department) {
+          return Swal.fire("แจ้งเตือน", "กรุณากรอกข้อมูลส่วนตัวให้ครบทุกช่อง", "warning");
+        }
+
+        payload.empId = empId;
+        payload.fullname = fullname;
+        payload.position = position;
+        payload.department = department;
+        payload.role = role;
+
+        // จัดเก็บข้อมูลลงแคชเครื่อง
+        profileCache.userId = empId || "USR-NEW";
+        profileCache.fullname = fullname;
+        profileCache.position = position;
+        profileCache.department = department;
+        profileCache.role = role;
       }
 
       const btn = document.getElementById("btnSubmit");
@@ -612,10 +688,15 @@
           body: JSON.stringify(payload)
         });
 
+        // ⚡ จุดสำคัญ: บันทึกโปรไฟล์ลงเครื่องทันที เพื่อให้ครั้งถัดไปเปิดแอปปุ๊บ สแกนได้ทันที ไม่ต้องโหลดรอ
+        localStorage.setItem("fleet_user_profile", JSON.stringify(profileCache));
+
         Swal.fire({
           icon: 'success',
-          title: 'สำเร็จ!',
-          text: 'ลงทะเบียนผูกสิทธิ์เรียบร้อยแล้ว'
+          title: 'ลงทะเบียนสำเร็จ!',
+          text: `ยินดีต้อนรับคุณ ${profileCache.fullname}`,
+          timer: 1800,
+          showConfirmButton: false
         }).then(() => {
           window.location.reload();
         });
