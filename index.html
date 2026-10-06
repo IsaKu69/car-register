@@ -224,7 +224,11 @@
     let currentScannedVehicle = null;
     let currentActiveLog = null;
 
-/**
+    // ⚡ ตัวแปรสำหรับระบบค้นหาความเร็วสูงในหน่วยความจำเครื่อง
+    let vehiclesDatabase = [];
+    let isVehiclesReady = false;
+
+    /**
      * ดึงข้อมูลผ่าน JSONP แบบทนทานสูง (มี Timeout และระบบ Retry อัตโนมัติ 2 ครั้ง)
      */
     function fetchJSONP(url, maxRetries = 2, timeoutMs = 12000) {
@@ -243,7 +247,6 @@
             if (script.parentNode) script.parentNode.removeChild(script);
           }
 
-          // ตั้งเวลาตัดหาก Google ตอบกลับช้าเกินไป
           timer = setTimeout(() => {
             cleanup();
             if (attempts <= maxRetries) {
@@ -254,18 +257,16 @@
             }
           }, timeoutMs);
 
-          // เมื่อ Apps Script ตอบกลับสำเร็จ
           window[callbackName] = function(data) {
             cleanup();
             resolve(data);
           };
 
-          // เมื่อเกิดข้อผิดพลาดในการโหลดสคริปต์
           script.onerror = function() {
             cleanup();
             if (attempts <= maxRetries) {
               console.warn(`เชื่อมต่อไม่สำเร็จ กำลังลองใหม่รอบที่ ${attempts}...`);
-              setTimeout(executeRequest, 1000); // พัก 1 วินาทีแล้วลองใหม่
+              setTimeout(executeRequest, 1000);
             } else {
               reject(new Error("เชื่อมต่อ Google Apps Script ไม่สำเร็จ กรุณาตรวจสัญญาณเน็ต"));
             }
@@ -280,8 +281,22 @@
       });
     }
 
-window.onload = async () => {
-      // ⚡ สเต็ปที่ 1: ดึงแคชเดิมในเครื่องมาแสดงทันทีก่อน (ขึ้นจอใน 0.1 - 0.2 วินาที ไม่ต้องรอเน็ต)
+    // ⚡ ฟังก์ชันแอบโหลดข้อมูลรถเบื้องหลังเงียบ ๆ (Background Preload)
+    async function preloadVehiclesBackground() {
+      try {
+        const res = await fetchJSONP(`${GAS_URL}?action=getAllVehicles`);
+        if (res && res.success && res.vehicles) {
+          vehiclesDatabase = res.vehicles;
+          isVehiclesReady = true;
+          console.log("พรีโหลดข้อมูลรถสำเร็จ:", vehiclesDatabase.length, "คัน");
+        }
+      } catch (err) {
+        console.warn("แอบโหลดข้อมูลรถไม่สำเร็จ:", err);
+      }
+    }
+
+    window.onload = async () => {
+      // สเต็ปที่ 1: ดึงแคชเดิมในเครื่องมาแสดงทันทีก่อนใน 0.1 - 0.2 วินาที
       const cachedUser = localStorage.getItem("fleet_user_profile");
       if (cachedUser) {
         try {
@@ -289,12 +304,13 @@ window.onload = async () => {
           document.getElementById("portalUserName").textContent = currentUser.fullname;
           document.getElementById("loading").style.display = "none";
           document.getElementById("scanPortalCard").classList.remove("d-none");
+          preloadVehiclesBackground(); // แอบดึงข้อมูลรถทันที
         } catch (e) {
           localStorage.removeItem("fleet_user_profile");
         }
       }
 
-      // ⚡ สเต็ปที่ 2: รันการเชื่อมต่อ LINE LIFF และตรวจสอบสิทธิ์เบื้องหลัง
+      // สเต็ปที่ 2: รันการเชื่อมต่อ LINE LIFF และตรวจสอบสิทธิ์เบื้องหลัง
       try {
         await liff.init({ liffId: LIFF_ID });
 
@@ -304,7 +320,6 @@ window.onload = async () => {
           document.getElementById("lineName").textContent = profile.displayName;
           if (profile.pictureUrl) document.getElementById("userAvatar").src = profile.pictureUrl;
 
-          // ถ้าไม่มีแคชในเครื่อง (เข้าครั้งแรก) หรือ UID ในเครื่องไม่ตรงกับ LINE ปัจจุบัน ค่อยยิงถาม GAS
           if (!currentUser || currentUser.lineUid !== profile.userId) {
             const res = await fetchJSONP(`${GAS_URL}?action=checkUser&lineUid=${encodeURIComponent(profile.userId)}`);
             document.getElementById("loading").style.display = "none";
@@ -312,11 +327,11 @@ window.onload = async () => {
             if (res.registered) {
               currentUser = res.userData;
               currentUser.lineUid = profile.userId;
-              // บันทึกลงเครื่องไว้ ครั้งต่อไปเปิดจะเร็วทันที
               localStorage.setItem("fleet_user_profile", JSON.stringify(currentUser));
 
               document.getElementById("portalUserName").textContent = res.userData.fullname;
               document.getElementById("scanPortalCard").classList.remove("d-none");
+              preloadVehiclesBackground();
             } else {
               document.getElementById("mainCard").classList.remove("d-none");
               loadPreloadedRoster();
@@ -333,11 +348,11 @@ window.onload = async () => {
             };
             document.getElementById("portalUserName").textContent = currentUser.fullname;
             document.getElementById("scanPortalCard").classList.remove("d-none");
+            preloadVehiclesBackground();
           }
         }
 
       } catch (err) {
-        // แม้ LIFF จะ error ถ้ามีแคชเดิมอยู่แล้วก็ยังใช้งานได้ต่อเนื่อง
         if (!cachedUser) {
           document.getElementById("loading").style.display = "none";
           Swal.fire("ข้อผิดพลาด", "ไม่สามารถเริ่มต้นระบบได้: " + err.message, "error");
@@ -365,7 +380,35 @@ window.onload = async () => {
       lookupCar(val);
     }
 
+    // ⚡ ค้นหารถแบบ Instant Lookup (ดึงจากเครื่องก่อน ไม่ต้องรอเซิร์ฟเวอร์)
     async function lookupCar(carKey) {
+      const rawTarget = String(carKey || "").trim().toLowerCase();
+      if (!rawTarget) return Swal.fire("แจ้งเตือน", "กรุณาระบุเลขทะเบียนหรือรหัสรถ", "warning");
+
+      const numTarget = rawTarget.replace(/[^0-9]/g, "");
+
+      // 1. ค้นหาจากหน่วยความจำเครื่องทันทีใน 0.01 วินาที
+      if (isVehiclesReady && vehiclesDatabase.length > 0) {
+        const matched = vehiclesDatabase.find(v => {
+          const cId = (v.carId || "").toLowerCase();
+          const pNum = (v.plateNumber || "").toLowerCase();
+          const pDigits = pNum.replace(/[^0-9]/g, "");
+
+          if (cId === rawTarget || pNum === rawTarget) return true;
+          if (rawTarget.length >= 2 && (cId.includes(rawTarget) || pNum.includes(rawTarget))) return true;
+          if (numTarget.length >= 2 && pDigits.includes(numTarget)) return true;
+          return false;
+        });
+
+        if (matched) {
+          currentScannedVehicle = matched;
+          currentActiveLog = matched.activeLog || null;
+          showScannedVehicle(matched, matched.activeLog);
+          return; // แสดงผลทันที ไม่ต้องโหลดรอ
+        }
+      }
+
+      // 2. หากยังพรีโหลดไม่เสร็จ หรือหาในเครื่องไม่พบ ให้ยิงถามสดตามปกติ
       Swal.fire({
         title: 'กำลังค้นหาข้อมูลรถ...',
         allowOutsideClick: false,
@@ -428,7 +471,6 @@ window.onload = async () => {
           verifyInput.required = false;
           verifyInput.value = "";
         } else {
-          // ไม่ใช่คนขับคนเดิม -> แสดงกล่องกรอกรหัสยืนยันตัวตน
           authBox.classList.remove("d-none");
           verifyInput.required = true;
           verifyInput.value = "";
@@ -518,6 +560,9 @@ window.onload = async () => {
           body: JSON.stringify(payload)
         });
 
+        // สั่งอัปเดตแคชรถเบื้องหลังใหม่ทันที
+        preloadVehiclesBackground();
+
         Swal.fire({
           icon: 'success',
           title: 'บันทึกเริ่มงานสำเร็จ!',
@@ -572,6 +617,9 @@ window.onload = async () => {
           headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify(payload)
         });
+
+        // สั่งอัปเดตแคชรถเบื้องหลังใหม่ทันที
+        preloadVehiclesBackground();
 
         Swal.fire({
           icon: 'success',
@@ -640,7 +688,7 @@ window.onload = async () => {
       else input.value = val;
     }
 
-async function handleSubmit(e) {
+    async function handleSubmit(e) {
       e.preventDefault();
 
       const lineUid = document.getElementById("lineUid").value.trim();
@@ -662,7 +710,6 @@ async function handleSubmit(e) {
         phone: phoneRaw
       };
 
-      // ตัวแปรสำหรับบันทึกโปรไฟล์ลง LocalStorage
       let profileCache = {
         lineUid: lineUid,
         phone: phoneRaw,
@@ -678,7 +725,6 @@ async function handleSubmit(e) {
         payload.rowNum = selectedPerson.rowNum;
         payload.fullname = selectedPerson.fullname;
 
-        // จัดเก็บข้อมูลลงแคชเครื่อง
         profileCache.userId = selectedPerson.userId || "";
         profileCache.fullname = selectedPerson.fullname;
         profileCache.position = selectedPerson.position || "-";
@@ -701,7 +747,6 @@ async function handleSubmit(e) {
         payload.department = department;
         payload.role = role;
 
-        // จัดเก็บข้อมูลลงแคชเครื่อง
         profileCache.userId = empId || "USR-NEW";
         profileCache.fullname = fullname;
         profileCache.position = position;
@@ -721,7 +766,6 @@ async function handleSubmit(e) {
           body: JSON.stringify(payload)
         });
 
-        // ⚡ จุดสำคัญ: บันทึกโปรไฟล์ลงเครื่องทันที เพื่อให้ครั้งถัดไปเปิดแอปปุ๊บ สแกนได้ทันที ไม่ต้องโหลดรอ
         localStorage.setItem("fleet_user_profile", JSON.stringify(profileCache));
 
         Swal.fire({
