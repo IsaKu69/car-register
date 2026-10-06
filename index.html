@@ -224,9 +224,20 @@
     let currentScannedVehicle = null;
     let currentActiveLog = null;
 
-    // ⚡ ตัวแปรสำหรับระบบค้นหาความเร็วสูงในหน่วยความจำเครื่อง
+    // ⚡ ฐานข้อมูลรถในหน่วยความจำเครื่อง เพื่อการค้นหาด่วนระดับเสี้ยววินาที
     let vehiclesDatabase = [];
     let isVehiclesReady = false;
+
+    // ⚡ ดึงแคชเดิมของรถจากเครื่องทันทีตั้งแต่วินาทีที่ 0 (ไม่ต้องรอโหลดเน็ต)
+    const cachedVehicles = localStorage.getItem("fleet_vehicles_cache");
+    if (cachedVehicles) {
+      try {
+        vehiclesDatabase = JSON.parse(cachedVehicles);
+        isVehiclesReady = true;
+      } catch (e) {
+        localStorage.removeItem("fleet_vehicles_cache");
+      }
+    }
 
     /**
      * ดึงข้อมูลผ่าน JSONP แบบทนทานสูง (มี Timeout และระบบ Retry อัตโนมัติ 2 ครั้ง)
@@ -281,14 +292,15 @@
       });
     }
 
-    // ⚡ ฟังก์ชันแอบโหลดข้อมูลรถเบื้องหลังเงียบ ๆ (Background Preload)
+    // ⚡ แอบดึงข้อมูลรถล่าสุดมาอัปเดตลงเครื่องเงียบ ๆ เบื้องหลัง
     async function preloadVehiclesBackground() {
       try {
         const res = await fetchJSONP(`${GAS_URL}?action=getAllVehicles`);
         if (res && res.success && res.vehicles) {
           vehiclesDatabase = res.vehicles;
           isVehiclesReady = true;
-          console.log("พรีโหลดข้อมูลรถสำเร็จ:", vehiclesDatabase.length, "คัน");
+          localStorage.setItem("fleet_vehicles_cache", JSON.stringify(res.vehicles));
+          console.log("พรีโหลดข้อมูลรถสำเร็จ:", res.vehicles.length, "คัน");
         }
       } catch (err) {
         console.warn("แอบโหลดข้อมูลรถไม่สำเร็จ:", err);
@@ -296,7 +308,7 @@
     }
 
     window.onload = async () => {
-      // สเต็ปที่ 1: ดึงแคชเดิมในเครื่องมาแสดงทันทีก่อนใน 0.1 - 0.2 วินาที
+      // ⚡ สเต็ป 1: ดึงโปรไฟล์เดิมในเครื่องขึ้นมาแสดงทันทีก่อนใน 0.1 - 0.2 วินาที
       const cachedUser = localStorage.getItem("fleet_user_profile");
       if (cachedUser) {
         try {
@@ -304,13 +316,13 @@
           document.getElementById("portalUserName").textContent = currentUser.fullname;
           document.getElementById("loading").style.display = "none";
           document.getElementById("scanPortalCard").classList.remove("d-none");
-          preloadVehiclesBackground(); // แอบดึงข้อมูลรถทันที
+          preloadVehiclesBackground();
         } catch (e) {
           localStorage.removeItem("fleet_user_profile");
         }
       }
 
-      // สเต็ปที่ 2: รันการเชื่อมต่อ LINE LIFF และตรวจสอบสิทธิ์เบื้องหลัง
+      // ⚡ สเต็ป 2: เชื่อมต่อ LINE LIFF และตรวจสอบสิทธิ์เบื้องหลัง
       try {
         await liff.init({ liffId: LIFF_ID });
 
@@ -380,23 +392,47 @@
       lookupCar(val);
     }
 
-    // ⚡ ค้นหารถแบบ Instant Lookup (ดึงจากเครื่องก่อน ไม่ต้องรอเซิร์ฟเวอร์)
+    // ⚡ ค้นหารถความเร็วสูง (Instant Lookup - ค้นหาในเครื่องก่อน ไม่ติดหน้าต่างหมุนรอ)
     async function lookupCar(carKey) {
-      const rawTarget = String(carKey || "").trim().toLowerCase();
+      let rawTarget = String(carKey || "").trim();
       if (!rawTarget) return Swal.fire("แจ้งเตือน", "กรุณาระบุเลขทะเบียนหรือรหัสรถ", "warning");
 
-      const numTarget = rawTarget.replace(/[^0-9]/g, "");
+      // ถอดค่ารหัสรถจาก URL กรณี QR Code สร้างมาจากลิงก์
+      try {
+        if (rawTarget.startsWith("http://") || rawTarget.startsWith("https://")) {
+          const urlObj = new URL(rawTarget);
+          rawTarget = urlObj.searchParams.get("carId") || 
+                      urlObj.searchParams.get("car") || 
+                      urlObj.searchParams.get("plate") || 
+                      rawTarget;
+        }
+      } catch (e) {
+        // หาก parse URL ไม่ผ่าน ให้ใช้สตริงเดิม
+      }
 
-      // 1. ค้นหาจากหน่วยความจำเครื่องทันทีใน 0.01 วินาที
+      const cleanTarget = rawTarget.toLowerCase();
+      const numTarget = cleanTarget.replace(/[^0-9]/g, "");
+
+      // ⚡ ค้นหาจากหน่วยความจำเครื่องทันที
       if (isVehiclesReady && vehiclesDatabase.length > 0) {
         const matched = vehiclesDatabase.find(v => {
           const cId = (v.carId || "").toLowerCase();
           const pNum = (v.plateNumber || "").toLowerCase();
           const pDigits = pNum.replace(/[^0-9]/g, "");
 
-          if (cId === rawTarget || pNum === rawTarget) return true;
-          if (rawTarget.length >= 2 && (cId.includes(rawTarget) || pNum.includes(rawTarget))) return true;
+          // 1. ตรวจสอบแบบตรงเป๊ะ
+          if (cId === cleanTarget || pNum === cleanTarget) return true;
+
+          // 2. ตรวจสอบกรณี QR Code เป็น URL หรือข้อความยาวที่มีรหัสรถแฝงอยู่
+          if (cId && cleanTarget.includes(cId)) return true;
+          if (pNum && cleanTarget.includes(pNum)) return true;
+
+          // 3. ตรวจสอบกรณีพิมพ์ค้นหาบางส่วน
+          if (cleanTarget.length >= 2 && (cId.includes(cleanTarget) || pNum.includes(cleanTarget))) return true;
+
+          // 4. ตรวจสอบเฉพาะตัวเลขทะเบียน
           if (numTarget.length >= 2 && pDigits.includes(numTarget)) return true;
+
           return false;
         });
 
@@ -404,11 +440,11 @@
           currentScannedVehicle = matched;
           currentActiveLog = matched.activeLog || null;
           showScannedVehicle(matched, matched.activeLog);
-          return; // แสดงผลทันที ไม่ต้องโหลดรอ
+          return; // ⚡ เจอปุ๊บ แสดงผลทันทีใน 0.01 วินาที!
         }
       }
 
-      // 2. หากยังพรีโหลดไม่เสร็จ หรือหาในเครื่องไม่พบ ให้ยิงถามสดตามปกติ
+      // หากไม่พบในเครื่องจริง ๆ จึงยอมให้ยิงถามเซิร์ฟเวอร์
       Swal.fire({
         title: 'กำลังค้นหาข้อมูลรถ...',
         allowOutsideClick: false,
@@ -416,7 +452,7 @@
       });
 
       try {
-        const res = await fetchJSONP(`${GAS_URL}?action=getVehicle&carId=${encodeURIComponent(carKey)}`);
+        const res = await fetchJSONP(`${GAS_URL}?action=getVehicle&carId=${encodeURIComponent(rawTarget)}`);
         Swal.close();
 
         if (res.success && res.vehicle) {
@@ -560,7 +596,7 @@
           body: JSON.stringify(payload)
         });
 
-        // สั่งอัปเดตแคชรถเบื้องหลังใหม่ทันที
+        // สั่งอัปเดตแคชรถในเครื่องเบื้องหลังทันที
         preloadVehiclesBackground();
 
         Swal.fire({
@@ -618,7 +654,7 @@
           body: JSON.stringify(payload)
         });
 
-        // สั่งอัปเดตแคชรถเบื้องหลังใหม่ทันที
+        // สั่งอัปเดตแคชรถในเครื่องเบื้องหลังทันที
         preloadVehiclesBackground();
 
         Swal.fire({
