@@ -25,6 +25,7 @@
 </head>
 <body>
 
+  <!-- จอแสดงสถานะการโหลด -->
   <div id="loading">
     <div class="spinner-border text-primary" role="status" style="width: 3.5rem; height: 3.5rem;"></div>
     <h5 class="mt-3 fw-bold text-primary" id="loadingText">กำลังตรวจสอบข้อมูล LINE...</h5>
@@ -134,7 +135,7 @@
 
         <div class="mileage-box mt-2">
           <small class="text-primary fw-bold d-block">เลขไมล์ล่าสุดในระบบ</small>
-          <span class="fs-4 fw-bold text-dark" id="resMileage">0</span> <small class="text-muted">กม.</small>
+          <span class="fs-4 fw-bold text-dark" id="resMileage">0</span> <small class="text-muted">กม./ชม.</small>
         </div>
       </div>
 
@@ -142,8 +143,8 @@
       <form id="checkoutForm" onsubmit="submitCheckout(event)" class="text-start">
         <div class="mb-3">
           <label class="form-label fw-bold text-secondary small">เลขไมล์เริ่มต้นนำรถออก <span class="text-danger">*</span></label>
-          <input type="number" class="form-control border-primary" id="startMileageInput" required placeholder="ระบุเลขไมล์หน้าปัดจริง">
-          <small class="text-muted" style="font-size: 0.75rem;">* ต้องเท่ากับหรือมากกว่าเลขไมล์ล่าสุด</small>
+          <input type="number" step="any" class="form-control border-primary" id="startMileageInput" required placeholder="ระบุเลขไมล์หน้าปัดจริง">
+          <small class="text-muted" style="font-size: 0.75rem;">* ต้องเท่ากับหรือมากกว่าเลขไมล์ล่าสุด (รองรับทศนิยม)</small>
         </div>
 
         <div class="mb-3">
@@ -229,12 +230,12 @@
       }
     };
 
-    // การสแกนและค้นหารถ
+    // ส่วนสแกนและค้นหารถ
     async function triggerScan() {
       if (liff.scanCodeV2) {
         try {
           const res = await liff.scanCodeV2();
-          if (res && res.value) lookupCar(res.value);
+          if (res && res.value) lookupCar(res.value.trim());
         } catch (err) {
           Swal.fire("แจ้งเตือน", "เปิดกล้องไม่สำเร็จหรือยกเลิก: " + err.message, "warning");
         }
@@ -281,7 +282,6 @@
       const mileageVal = Number(v.currentMileage || 0);
       document.getElementById("resMileage").textContent = mileageVal.toLocaleString();
       
-      // กำหนดค่าเริ่มต้นและ min ให้ช่องกรอกเลขไมล์
       const mileageInput = document.getElementById("startMileageInput");
       mileageInput.value = mileageVal;
       mileageInput.min = mileageVal;
@@ -316,7 +316,7 @@
       document.getElementById("scanActionBox").classList.remove("d-none");
     }
 
-    // ฟังก์ชันส่งบันทึก Check-out
+    // ฟังก์ชัน Check-out ส่งข้อมูลเข้าชีต usage_logs
     async function submitCheckout(e) {
       e.preventDefault();
       if (!currentScannedVehicle || !currentUser) return;
@@ -335,10 +335,10 @@
 
       const payload = {
         action: "checkoutVehicle",
-        carId: currentScannedVehicle.carId,
-        plateNumber: currentScannedVehicle.plateNumber,
-        driverName: currentUser.fullname,
-        driverUid: currentUser.lineUid,
+        carId: String(currentScannedVehicle.carId || "").trim(),
+        plateNumber: String(currentScannedVehicle.plateNumber || "").trim(),
+        driverName: String(currentUser.fullname || "").trim(),
+        driverUid: String(currentUser.lineUid || "").trim(),
         purpose: purpose,
         startMileage: startMileage
       };
@@ -354,7 +354,7 @@
         Swal.fire({
           icon: 'success',
           title: 'บันทึกเริ่มงานสำเร็จ!',
-          html: `นำรถทะเบียน <b>${currentScannedVehicle.plateNumber}</b> ออกปฏิบัติงาน<br>เลขไมล์เริ่มต้น: <b>${startMileage.toLocaleString()}</b> กม.`
+          html: `นำรถทะเบียน <b>${currentScannedVehicle.plateNumber}</b> ออกปฏิบัติงาน<br>เลขไมล์เริ่มต้น: <b>${startMileage.toLocaleString()}</b>`
         }).then(() => {
           if (liff.isInClient()) {
             liff.closeWindow();
@@ -370,7 +370,7 @@
       }
     }
 
-    // ฟังก์ชันลงทะเบียนเดิม
+    // ฟังก์ชันจัดการรายชื่อเดิม
     async function loadPreloadedRoster() {
       try {
         const data = await fetchJSONP(`${GAS_URL}?action=getRoster`);
