@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>ลงทะเบียนระบบใช้รถส่วนกลาง</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <style>
+    body { font-family: 'Sarabun', sans-serif; background-color: #f0f2f5; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .card-custom { max-width: 480px; width: 100%; border-radius: 20px; border: none; box-shadow: 0 10px 25px rgba(0,0,0,0.08); overflow: hidden; }
+    .header-bar { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: white; padding: 24px 20px; text-align: center; }
+    .avatar-preview { width: 75px; height: 75px; border-radius: 50%; border: 3px solid #ffc107; margin-top: -38px; background-color: #fff; object-fit: cover; }
+    .tab-toggle { border-radius: 10px; background-color: #e9ecef; padding: 4px; display: flex; margin-bottom: 20px; }
+    .tab-btn { flex: 1; border: none; background: transparent; padding: 8px; font-size: 0.9rem; font-weight: 600; border-radius: 8px; color: #6c757d; transition: 0.2s; }
+    .tab-btn.active { background-color: white; color: #1e3c72; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+    .btn-submit { background-color: #1e3c72; color: white; border-radius: 12px; padding: 12px; font-weight: 600; width: 100%; transition: 0.2s; }
+    #loading { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; width: 100%; position: absolute; top: 0; left: 0; background: #f0f2f5; z-index: 1000; padding: 20px; text-align: center; }
+  </style>
+</head>
+<body>
+
+  <!-- กล่อง Loading เรดาร์ตรวจจับ -->
+  <div id="loading">
+    <div class="spinner-border text-primary" role="status" style="width: 3.5rem; height: 3.5rem;"></div>
+    <h4 class="mt-4 fw-bold text-primary" id="loadingStep">เตรียมความพร้อม...</h4>
+    <div class="card w-100 mt-3 p-3 text-start bg-dark text-success" style="font-family: monospace; font-size: 0.8rem; border-radius: 10px; opacity: 0.8;">
+      <strong>Terminal Log:</strong>
+      <div id="loadingLog"></div>
+    </div>
+  </div>
+
+  <!-- Card สำหรับบังคับกดล็อกอิน -->
+  <div class="card card-custom p-4 text-center d-none" id="requireLoginCard">
+    <div class="my-3"><i class="bi bi-shield-lock-fill text-warning" style="font-size: 4rem;"></i></div>
+    <h4 class="fw-bold text-dark">ต้องการเข้าสู่ระบบ</h4>
+    <p class="text-muted small">ระบบต้องการยืนยันตัวตนผ่าน LINE ของท่าน<br>กรุณากดปุ่มด้านล่างเพื่อดำเนินการต่อ</p>
+    <button class="btn btn-success w-100 py-2 rounded-3 mt-3 shadow-sm fw-bold" onclick="doLineLogin()">
+      <i class="bi bi-line me-1"></i> เข้าสู่ระบบด้วย LINE
+    </button>
+  </div>
+
+  <!-- Card ฟอร์มลงทะเบียน -->
+  <div class="card card-custom d-none" id="mainCard">
+    <div class="header-bar">
+      <h5 class="fw-bold mb-1"><i class="bi bi-car-front-fill me-2"></i>ระบบใช้รถส่วนกลาง</h5>
+      <small class="opacity-75">ยืนยันตัวตนและผูกสิทธิ์การใช้งานผ่าน LINE</small>
+    </div>
+
+    <div class="card-body p-4 pt-0 text-center">
+      <img id="userAvatar" src="https://via.placeholder.com/75" class="avatar-preview shadow-sm mb-2" alt="Avatar">
+      <div class="fw-bold text-dark fs-6" id="lineName">-</div>
+      <small class="text-muted d-block mb-3">บัญชี LINE ที่จะใช้เข้าสู่ระบบ</small>
+
+      <div class="tab-toggle" id="tabGroup">
+        <button type="button" class="tab-btn active" id="btnTabExisting" onclick="switchMode('existing')"><i class="bi bi-person-check me-1"></i>เลือกข้อมูลเดิม</button>
+        <button type="button" class="tab-btn" id="btnTabNew" onclick="switchMode('new')"><i class="bi bi-person-plus me-1"></i>เพิ่มข้อมูลใหม่</button>
+      </div>
+
+      <form id="regForm" class="text-start" onsubmit="handleSubmit(event)">
+        <input type="hidden" id="lineUid">
+        <input type="hidden" id="currentMode" value="existing">
+
+        <div id="section-existing">
+          <div class="mb-3">
+            <label class="form-label fw-bold text-secondary small">ค้นหารหัสประจำตัว (ID) ของท่าน <span class="text-danger">*</span></label>
+            <select class="form-select border-primary" id="selectRoster" onchange="onRosterSelected()">
+              <option value="">-- กำลังโหลดข้อมูล... --</option>
+            </select>
+          </div>
+          <div class="card bg-light border-0 p-3 mb-3 d-none" id="previewBox">
+            <div class="small text-muted mb-1">รายละเอียดตำแหน่งงาน:</div>
+            <div class="fw-bold text-dark" id="prevPosition">-</div>
+            <div class="small text-secondary" id="prevDept">-</div>
+            <div class="small text-primary mt-1" id="prevRole"><i class="bi bi-shield-lock me-1"></i>สิทธิ์: -</div>
+          </div>
+        </div>
+
+        <div id="section-new" class="d-none">
+          <div class="mb-3"><label class="form-label fw-bold text-secondary small">รหัสประจำตัว (ID) <span class="text-danger">*</span></label><input type="text" class="form-control" id="fullname" placeholder="เช่น 100123 หรือ EMP-001"></div>
+          <div class="mb-3"><label class="form-label fw-bold text-secondary small">ตำแหน่ง <span class="text-danger">*</span></label><input type="text" class="form-control" id="position" placeholder="เช่น พนักงานขับรถ, ช่างโยธา"></div>
+          <div class="mb-3"><label class="form-label fw-bold text-secondary small">สำนัก / กอง / ฝ่าย <span class="text-danger">*</span></label><input type="text" class="form-control" id="department" placeholder="เช่น กองช่าง, สำนักปลัด"></div>
+          <div class="mb-3"><label class="form-label fw-bold text-secondary small">บทบาทการใช้งาน <span class="text-danger">*</span></label>
+            <select class="form-select" id="role">
+              <option value="ผู้ใช้รถทั่วไป">ผู้ใช้รถทั่วไป</option>
+              <option value="พนักงานขับรถ">พนักงานขับรถประจำคัน</option>
+              <option value="หัวหน้างาน">หัวหน้างาน / ผู้ดูแลงาน</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label class="form-label fw-bold text-secondary small">เบอร์โทรศัพท์ติดต่อ <span class="text-danger">*</span></label>
+          <input type="tel" class="form-control" id="phone" placeholder="เช่น 081-234-5678" required maxlength="12" oninput="formatPhone(this)">
+        </div>
+
+        <button type="submit" id="btnSubmit" class="btn btn-submit shadow-sm"><i class="bi bi-check-circle-fill me-1"></i> ยืนยันการผูกสิทธิ์ LINE</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Card สำหรับคนที่เคยลงทะเบียนแล้ว -->
+  <div class="card card-custom p-4 text-center d-none" id="alreadyRegisteredCard">
+    <div class="my-3"><i class="bi bi-patch-check-fill text-success" style="font-size: 4rem;"></i></div>
+    <h4 class="fw-bold text-dark">ลงทะเบียนเรียบร้อยแล้ว</h4>
+    <p class="text-muted small">บัญชี LINE นี้ได้ผูกสิทธิ์ในระบบใช้งานรถส่วนกลางแล้วครับ</p>
+    <div class="card bg-light border-0 p-3 my-3 text-start">
+      <div class="d-flex justify-content-between mb-1"><span class="text-muted small">รหัสประจำตัว (ID):</span><strong id="cardName" class="text-dark">-</strong></div>
+      <div class="d-flex justify-content-between mb-1"><span class="text-muted small">ตำแหน่ง:</span><span id="cardPos" class="text-dark">-</span></div>
+      <div class="d-flex justify-content-between mb-1"><span class="text-muted small">กอง/ฝ่าย:</span><span id="cardDept" class="text-dark">-</span></div>
+      <div class="d-flex justify-content-between"><span class="text-muted small">สิทธิ์:</span><span id="cardRole" class="badge bg-primary">-</span></div>
+    </div>
+    <button class="btn btn-outline-secondary w-100 py-2 rounded-3" onclick="liff.closeWindow()"><i class="bi bi-x-circle me-1"></i> ปิดหน้าต่างนี้</button>
+  </div>
+
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script>
+    const LIFF_ID = "2011882870-Bs61VIj2"; 
+
+    function logToScreen(stepText, detailText) {
+      document.getElementById("loadingStep").textContent = stepText;
+      document.getElementById("loadingLog").innerHTML += "> " + detailText + "<br>";
+    }
+
+    function doLineLogin() {
+      liff.login({ redirectUri: "https://liff.line.me/" + LIFF_ID });
+    }
+
+    window.onload = async () => {
+      logToScreen("1. เริ่มต้นระบบ", "กำลังเรียก liff.init()");
+      try {
+        const initTask = liff.init({ 
+          liffId: LIFF_ID,
+          withLoginOnExternalBrowser: true 
+        });
+        const timeoutTask = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error("แอป LINE ไม่ตอบสนอง (กรุณาล้างแคชแอป LINE)")), 8000);
+        });
+
+        await Promise.race([initTask, timeoutTask]);
+        
+        logToScreen("2. LIFF พร้อมใช้งาน", "เช็กสถานะล็อกอิน...");
+        
+        if (!liff.isLoggedIn()) {
+          logToScreen("2.1 ยังไม่ล็อกอิน", "แสดงปุ่มให้ผู้ใช้กด");
+          document.getElementById("loading").style.display = "none";
+          document.getElementById("requireLoginCard").classList.remove("d-none");
+          return;
+        }
+
+        logToScreen("3. ดึงข้อมูล", "กำลังดึงข้อมูล Profile จาก LINE");
+        const profile = await liff.getProfile();
+        document.getElementById("lineUid").value = profile.userId;
+        document.getElementById("lineName").textContent = profile.displayName;
+        if (profile.pictureUrl) document.getElementById("userAvatar").src = profile.pictureUrl;
+        
+        logToScreen("4. ส่งข้อมูล", "กำลังติดต่อไปยัง Google Apps Script");
+
+        const timeoutDetector = setTimeout(() => {
+          document.getElementById("loadingLog").innerHTML += "<span class='text-danger'>! ERROR: Google ไม่ตอบสนอง</span><br>";
+        }, 12000);
+
+        google.script.run
+          .withSuccessHandler(res => {
+            clearTimeout(timeoutDetector);
+            logToScreen("5. สำเร็จ", "Google ตอบกลับมาแล้ว!");
+            handleCheckResult(res);
+          })
+          .withFailureHandler(err => {
+            clearTimeout(timeoutDetector);
+            document.getElementById("loadingLog").innerHTML += "<span class='text-danger'>! ERROR: " + err.toString() + "</span><br>";
+            Swal.fire("ข้อผิดพลาดฝั่งเซิร์ฟเวอร์", err.toString(), "error");
+          })
+          .checkUserRegistration(profile.userId);
+
+      } catch (err) {
+        document.getElementById("loading").style.display = "none";
+        Swal.fire({
+          icon: 'warning',
+          title: 'แอป LINE ทำงานผิดปกติ',
+          text: err.message,
+          footer: 'แนะนำให้ไปที่ ตั้งค่า > แชท > ลบข้อมูล > ลบแคช',
+          confirmButtonColor: '#1e3c72'
+        });
+      }
+    };
+
+    function handleCheckResult(res) {
+      document.getElementById("loading").style.display = "none";
+      if (res.registered) {
+        document.getElementById("cardName").textContent = res.userData.fullname;
+        document.getElementById("cardPos").textContent = res.userData.position;
+        document.getElementById("cardDept").textContent = res.userData.department;
+        document.getElementById("cardRole").textContent = res.userData.role;
+        document.getElementById("alreadyRegisteredCard").classList.remove("d-none");
+      } else {
+        document.getElementById("mainCard").classList.remove("d-none");
+        loadPreloadedRoster();
+      }
+    }
+
+    function loadPreloadedRoster() {
+      google.script.run.withSuccessHandler(data => {
+        rosterList = data || [];
+        const select = document.getElementById("selectRoster");
+        select.innerHTML = '<option value="">-- กรุณาเลือกข้อมูลของท่าน --</option>';
+        if (rosterList.length === 0) {
+          select.innerHTML = '<option value="" disabled>-- ไม่พบข้อมูล (กรุณาสลับไปเพิ่มข้อมูลใหม่) --</option>';
+          return;
+        }
+        rosterList.forEach((item, idx) => {
+          let opt = document.createElement("option");
+          opt.value = idx;
+          // แสดงผลใน Dropdown เป็น ID (แผนก)
+          opt.textContent = `${item.fullname} (${item.department})`; 
+          select.appendChild(opt);
+        });
+      }).getPreloadedRoster();
+    }
+
+    function switchMode(mode) {
+      document.getElementById("currentMode").value = mode;
+      document.getElementById("btnTabExisting").classList.toggle("active", mode === "existing");
+      document.getElementById("btnTabNew").classList.toggle("active", mode === "new");
+      document.getElementById("section-existing").classList.toggle("d-none", mode !== "existing");
+      document.getElementById("section-new").classList.toggle("d-none", mode !== "new");
+    }
+
+    function onRosterSelected() {
+      const idx = document.getElementById("selectRoster").value;
+      const preview = document.getElementById("previewBox");
+      if (idx !== "") {
+        const sel = rosterList[idx];
+        document.getElementById("prevPosition").textContent = sel.position || "-";
+        document.getElementById("prevDept").textContent = sel.department || "-";
+        document.getElementById("prevRole").innerHTML = `<i class="bi bi-shield-lock me-1"></i>สิทธิ์: ${sel.role}`;
+        if (sel.phone) document.getElementById("phone").value = sel.phone;
+        preview.classList.remove("d-none");
+      } else {
+        preview.classList.add("d-none");
+      }
+    }
+
+    function formatPhone(input) {
+      let val = input.value.replace(/[^0-9]/g, "");
+      if (val.length > 3 && val.length <= 6) input.value = val.slice(0, 3) + "-" + val.slice(3);
+      else if (val.length > 6) input.value = val.slice(0, 3) + "-" + val.slice(3, 6) + "-" + val.slice(6, 10);
+      else input.value = val;
+    }
+
+    function handleSubmit(e) {
+      e.preventDefault();
+      const mode = document.getElementById("currentMode").value;
+      const phone = document.getElementById("phone").value.trim();
+      
+      if (!phone || phone.length < 11) return Swal.fire("แจ้งเตือน", "กรุณากรอกเบอร์โทรศัพท์ให้ครบถ้วน", "warning");
+
+      let payload = { lineUid: document.getElementById("lineUid").value, mode: mode, phone: phone };
+
+      if (mode === "existing") {
+        const selectIdx = document.getElementById("selectRoster").value;
+        if (selectIdx === "") return Swal.fire("แจ้งเตือน", "กรุณาเลือกรหัสประจำตัวของท่าน", "warning");
+        payload.rowNum = rosterList[selectIdx].rowNum;
+        payload.fullname = rosterList[selectIdx].fullname;
+      } else {
+        payload.fullname = document.getElementById("fullname").value.trim();
+        payload.position = document.getElementById("position").value.trim();
+        payload.department = document.getElementById("department").value.trim();
+        payload.role = document.getElementById("role").value;
+        if (!payload.fullname || !payload.position || !payload.department) return Swal.fire("แจ้งเตือน", "กรุณากรอกข้อมูลให้ครบทุกช่อง", "warning");
+      }
+
+      const btn = document.getElementById("btnSubmit");
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>กำลังบันทึกข้อมูล...';
+
+      google.script.run
+        .withSuccessHandler(res => {
+          if (res.success) {
+            Swal.fire({ icon: 'success', title: 'สำเร็จ!', text: 'ผูกสิทธิ์เรียบร้อยแล้ว' }).then(() => {
+              if (liff.isInClient()) liff.closeWindow(); else window.location.reload();
+            });
+          } else {
+            Swal.fire("ผิดพลาด", res.error, "error");
+            btn.disabled = false; btn.innerHTML = 'ยืนยันการผูกสิทธิ์ LINE';
+          }
+        })
+        .withFailureHandler(err => {
+          Swal.fire("ขัดข้อง", err.toString(), "error");
+          btn.disabled = false; btn.innerHTML = 'ยืนยันการผูกสิทธิ์ LINE';
+        })
+        .processRegistration(payload);
+    }
+  </script>
+</body>
+</html>
