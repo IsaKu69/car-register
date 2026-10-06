@@ -169,6 +169,17 @@
           <span class="text-muted">เริ่มงานเมื่อ: <span id="activeStartTime">-</span> | ไมล์เริ่ม: <b id="activeStartMile">0</b></span>
         </div>
 
+        <!-- กล่องกรอกรหัสยืนยันตัวตน (จะแสดงขึ้นมาเมื่อไม่ใช่คนขับคนเดิม) -->
+        <div class="card border-warning bg-warning bg-opacity-10 p-3 mb-3 d-none" id="authBox">
+          <label class="form-label fw-bold text-dark small mb-1">
+            <i class="bi bi-shield-lock-fill text-warning me-1"></i> ยืนยันสิทธิ์การส่งคืนรถแทน <span class="text-danger">*</span>
+          </label>
+          <small class="text-muted d-block mb-2" style="font-size: 0.78rem;">
+            เนื่องจากคุณไม่ได้เป็นผู้เบิก กรุณากรอก <b>รหัสประจำตัว</b> หรือ <b>เบอร์โทรศัพท์ 4 ตัวท้าย</b> ของคนขับเพื่อยืนยัน
+          </small>
+          <input type="text" class="form-control border-warning" id="verifyKeyInput" placeholder="ระบุ ID หรือเบอร์ 4 ตัวท้าย">
+        </div>
+
         <div class="mb-3">
           <label class="form-label fw-bold text-success small">เลขไมล์สิ้นสุดตอนนำรถกลับ <span class="text-danger">*</span></label>
           <input type="number" step="any" class="form-control border-success" id="endMileageInput" required placeholder="ระบุเลขไมล์หน้าปัดจริง" oninput="calculateTripDistance()">
@@ -322,16 +333,19 @@
       const badge = document.getElementById("carStatusBadge");
       const checkoutForm = document.getElementById("checkoutForm");
       const checkinForm = document.getElementById("checkinForm");
+      const authBox = document.getElementById("authBox");
+      const verifyInput = document.getElementById("verifyKeyInput");
 
       badge.textContent = v.status || "พร้อมใช้งาน";
 
-      // กรณีที่ 1: รถกำลังใช้งาน -> สลับเข้าฟอร์ม Check-in (ส่งคืนรถ)
+      // 1. รถกำลังใช้งาน -> สลับเข้าฟอร์ม Check-in (ส่งคืนรถ)
       if (v.status === "กำลังใช้งาน") {
         badge.className = "badge bg-warning text-dark info-badge";
         checkoutForm.classList.add("d-none");
         checkinForm.classList.remove("d-none");
 
         const startMile = activeLog ? Number(activeLog.startMileage) : Number(v.currentMileage || 0);
+        const originalDriverUid = activeLog ? activeLog.driverUid : (v.driverUid || "");
         document.getElementById("activeDriverName").textContent = activeLog ? activeLog.driverName : (v.driverUid || "-");
         document.getElementById("activeStartTime").textContent = activeLog ? activeLog.startTime : "-";
         document.getElementById("activeStartMile").textContent = startMile.toLocaleString();
@@ -342,8 +356,20 @@
         document.getElementById("tripDistanceBox").classList.add("d-none");
         document.getElementById("issueInput").value = "";
         document.getElementById("checkDamageFlag").checked = false;
+
+        // ตรวจสอบว่าผู้ที่เปิดอยู่เป็นคนขับคนเดิมหรือไม่
+        if (currentUser && currentUser.lineUid && currentUser.lineUid === originalDriverUid) {
+          authBox.classList.add("d-none");
+          verifyInput.required = false;
+          verifyInput.value = "";
+        } else {
+          // ไม่ใช่คนขับคนเดิม -> แสดงกล่องกรอกรหัสยืนยันตัวตน
+          authBox.classList.remove("d-none");
+          verifyInput.required = true;
+          verifyInput.value = "";
+        }
       } 
-      // กรณีที่ 2: รถพร้อมใช้งาน -> สลับเข้าฟอร์ม Check-out (นำรถออก)
+      // 2. รถพร้อมใช้งาน -> ฟอร์ม Check-out (นำรถออก)
       else if (v.status === "พร้อมใช้งาน") {
         badge.className = "badge bg-success info-badge";
         checkinForm.classList.add("d-none");
@@ -356,7 +382,7 @@
         startInput.min = mileageVal;
         document.getElementById("purposeInput").value = "";
       } 
-      // กรณีที่ 3: รถส่งซ่อม
+      // 3. รถส่งซ่อม
       else {
         badge.className = "badge bg-danger info-badge";
         checkinForm.classList.add("d-none");
@@ -442,7 +468,7 @@
       }
     }
 
-    // 👉 ส่งบันทึกส่งคืนรถ (Check-in)
+    // ส่งบันทึกส่งคืนรถ (Check-in) พร้อมส่ง verifyKey
     async function submitCheckin(e) {
       e.preventDefault();
       if (!currentScannedVehicle || !currentUser) return;
@@ -451,6 +477,7 @@
       const startMileage = currentActiveLog ? Number(currentActiveLog.startMileage) : Number(currentScannedVehicle.currentMileage || 0);
       const issues = document.getElementById("issueInput").value.trim();
       const isDamaged = document.getElementById("checkDamageFlag").checked;
+      const verifyKey = document.getElementById("verifyKeyInput").value.trim();
 
       if (endMileage < startMileage) {
         return Swal.fire("แจ้งเตือน", `เลขไมล์สิ้นสุด (${endMileage}) ต้องไม่น้อยกว่าเลขไมล์เริ่มต้น (${startMileage})`, "warning");
@@ -468,7 +495,9 @@
         plateNumber: String(currentScannedVehicle.plateNumber || "").trim(),
         endMileage: endMileage,
         issueReported: issues,
-        isDamaged: isDamaged
+        isDamaged: isDamaged,
+        currentUserUid: String(currentUser.lineUid || "").trim(),
+        verifyKey: verifyKey
       };
 
       try {
