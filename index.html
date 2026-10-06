@@ -1,431 +1,517 @@
-<!DOCTYPE html>
-<html lang="th">
-<head>
-  <meta charset="UTF-8">
-  <title>ระบบใช้รถส่วนกลาง</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-  <style>
-    body { font-family: 'Sarabun', sans-serif; background-color: #f0f2f5; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
-    .card-custom { max-width: 480px; width: 100%; border-radius: 20px; border: none; box-shadow: 0 10px 25px rgba(0,0,0,0.08); overflow: hidden; background: #fff; }
-    .header-bar { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: white; padding: 22px 20px; text-align: center; }
-    .avatar-preview { width: 75px; height: 75px; border-radius: 50%; border: 3px solid #ffc107; margin-top: -38px; background-color: #fff; object-fit: cover; }
-    .tab-toggle { border-radius: 10px; background-color: #e9ecef; padding: 4px; display: flex; margin-bottom: 20px; }
-    .tab-btn { flex: 1; border: none; background: transparent; padding: 8px; font-size: 0.9rem; font-weight: 600; border-radius: 8px; color: #6c757d; transition: 0.2s; }
-    .tab-btn.active { background-color: white; color: #1e3c72; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
-    .btn-submit { background-color: #1e3c72; color: white; border-radius: 12px; padding: 12px; font-weight: 600; width: 100%; transition: 0.2s; }
+// =========================================================
+// 🚗 API หลังบ้าน: ระบบลงทะเบียนผู้ใช้งาน & จัดการยานพาหนะส่วนกลาง
+// =========================================================
+
+function doGet(e) {
+  var action = e.parameter.action;
+  var callback = e.parameter.callback;
+  var result = {};
+
+  try {
+    // -------------------------------------------------------
+    // หมวดที่ 1: ระบบจัดการผู้ใช้งาน (แผ่นงาน setup)
+    // -------------------------------------------------------
+    if (action === "checkUser") {
+      result = checkUserRegistration(e.parameter.lineUid);
+    } else if (action === "getRoster") {
+      result = getPreloadedRoster();
+    } 
     
-    /* สไตล์ปุ่มสแกน */
-    .btn-scan-circle { width: 90px; height: 90px; border-radius: 50%; font-size: 2.2rem; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 8px 20px rgba(30,60,114,0.3); transition: transform 0.2s; }
-    .btn-scan-circle:active { transform: scale(0.92); }
-    .mileage-box { background: #eef4ff; border: 1.5px dashed #2a5298; border-radius: 12px; padding: 12px; text-align: center; }
-    .info-badge { font-size: 0.85rem; padding: 4px 12px; border-radius: 20px; }
-    
-    #loading { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; width: 100%; position: absolute; top: 0; left: 0; background: #f0f2f5; z-index: 1000; padding: 20px; }
-  </style>
-</head>
-<body>
+    // -------------------------------------------------------
+    // หมวดที่ 2: ระบบจัดการยานพาหนะ/เครื่องจักรกล (แผ่นงาน vehicles)
+    // -------------------------------------------------------
+    // 2.1 ดึงข้อมูลรถรายคันจากการสแกน QR Code หรือระบุรหัส/ทะเบียน
+    else if (action === "getVehicle") {
+      result = getVehicleDetail(e.parameter.carId || e.parameter.plateNumber);
+    }
+    // 2.2 ดึงรายการรถทั้งหมดที่สถานะ "พร้อมใช้งาน" (แสดงใน Dropdown)
+    else if (action === "getAvailableVehicles") {
+      result = getAvailableVehicles();
+    }
+    // 2.3 ดึงข้อมูลประวัติรถทั้งหมด (สำหรับหน้าแอดมิน/จัดการรายการรถ)
+    else if (action === "getAllVehicles") {
+      result = getAllVehicles();
+    }
+    else {
+      result = { status: "ready", timestamp: new Date().toISOString() };
+    }
+  } catch (err) {
+    result = { success: false, error: err.toString() };
+  }
 
-  <!-- จอแสดงสถานะการโหลด -->
-  <div id="loading">
-    <div class="spinner-border text-primary" role="status" style="width: 3.5rem; height: 3.5rem;"></div>
-    <h5 class="mt-3 fw-bold text-primary" id="loadingText">กำลังตรวจสอบข้อมูล LINE...</h5>
-  </div>
+  // ส่งกลับในรูปแบบ JSONP สำหรับฝั่ง Frontend (GitHub Pages) เพื่อเลี่ยงปัญหา CORS
+  if (callback) {
+    return ContentService.createTextOutput(callback + "(" + JSON.stringify(result) + ")")
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
 
-  <!-- ========================================== -->
-  <!-- หน้าที่ 1: หน้าลงทะเบียน (สำหรับคนที่ยังไม่ได้ผูกสิทธิ์) -->
-  <!-- ========================================== -->
-  <div class="card card-custom d-none" id="mainCard">
-    <div class="header-bar">
-      <h5 class="fw-bold mb-1"><i class="bi bi-person-badge me-2"></i>ลงทะเบียนเข้าใช้งาน</h5>
-      <small class="opacity-75">ยืนยันตัวตนและผูกบัญชี LINE สำหรับระบบรถส่วนกลาง</small>
-    </div>
+  return ContentService.createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
+}
 
-    <div class="card-body p-4 pt-0 text-center">
-      <img id="userAvatar" src="https://via.placeholder.com/75" class="avatar-preview shadow-sm mb-2" alt="Avatar">
-      <div class="fw-bold text-dark fs-6" id="lineName">-</div>
-      <small class="text-muted d-block mb-3">บัญชี LINE ที่จะใช้เข้าสู่ระบบ</small>
+function doPost(e) {
+  try {
+    var payload = JSON.parse(e.postData.contents);
+    var action = payload.action || "registerUser";
+    var res = {};
 
-      <div class="tab-toggle" id="tabGroup">
-        <button type="button" class="tab-btn active" id="btnTabExisting" onclick="switchMode('existing')"><i class="bi bi-person-check me-1"></i>เลือกรายชื่อเดิม</button>
-        <button type="button" class="tab-btn" id="btnTabNew" onclick="switchMode('new')"><i class="bi bi-person-plus me-1"></i>เพิ่มรายชื่อใหม่</button>
-      </div>
+    // แยกการทำงานตาม action
+    if (action === "saveVehicle") {
+      // เพิ่มหรือแก้ไขข้อมูลประวัติรถ
+      res = saveVehicleData(payload);
+    } else if (action === "checkoutVehicle") {
+      // บันทึกเริ่มนำรถออกปฏิบัติงาน (Check-out)
+      res = processCheckoutVehicle(payload);
+    } else {
+      // ลงทะเบียนผู้ใช้งาน (ค่าเริ่มต้นเดิม)
+      res = processRegistration(payload);
+    }
 
-      <form id="regForm" class="text-start" onsubmit="handleSubmit(event)">
-        <input type="hidden" id="lineUid">
-        <input type="hidden" id="currentMode" value="existing">
+    return ContentService.createTextOutput(JSON.stringify(res))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
 
-        <div id="section-existing">
-          <div class="mb-3">
-            <label class="form-label fw-bold text-secondary small">ค้นหารายชื่อ / ID ของท่าน <span class="text-danger">*</span></label>
-            <select class="form-select border-primary" id="selectRoster" onchange="onRosterSelected()">
-              <option value="">-- กำลังโหลดรายชื่อ... --</option>
-            </select>
-          </div>
-          <div class="card bg-light border-0 p-3 mb-3 d-none" id="previewBox">
-            <div class="small text-muted mb-1">รายละเอียดตำแหน่งงาน:</div>
-            <div class="fw-bold text-dark" id="prevPosition">-</div>
-            <div class="small text-secondary" id="prevDept">-</div>
-            <div class="small text-primary mt-1" id="prevRole"><i class="bi bi-shield-lock me-1"></i>สิทธิ์: -</div>
-          </div>
-        </div>
+// =========================================================
+// 👤 ฟังก์ชันหมวดผู้ใช้งาน (แผ่นงาน setup)
+// =========================================================
 
-        <div id="section-new" class="d-none">
-          <div class="mb-3"><label class="form-label fw-bold text-secondary small">รหัสประจำตัว (ID) <span class="text-danger">*</span></label><input type="text" class="form-control" id="empId" placeholder="เช่น 1001 หรือ EMP-001"></div>
-          <div class="mb-3"><label class="form-label fw-bold text-secondary small">ชื่อ - นามสกุลจริง <span class="text-danger">*</span></label><input type="text" class="form-control" id="fullname" placeholder="เช่น นายสมชาย ใจดี"></div>
-          <div class="mb-3"><label class="form-label fw-bold text-secondary small">ตำแหน่ง <span class="text-danger">*</span></label><input type="text" class="form-control" id="position" placeholder="เช่น พนักงานขับรถ, ช่างเครื่องกล"></div>
-          <div class="mb-3"><label class="form-label fw-bold text-secondary small">สำนัก / กอง / ฝ่าย <span class="text-danger">*</span></label><input type="text" class="form-control" id="department" placeholder="เช่น กองช่าง, สำนักปลัด"></div>
-          <div class="mb-3"><label class="form-label fw-bold text-secondary small">บทบาทการใช้งาน <span class="text-danger">*</span></label>
-            <select class="form-select" id="role">
-              <option value="ผู้ใช้รถทั่วไป">ผู้ใช้รถทั่วไป</option>
-              <option value="พนักงานขับรถ">พนักงานขับรถประจำคัน</option>
-              <option value="หัวหน้างาน">หัวหน้างาน / ผู้ดูแลงาน</option>
-            </select>
-          </div>
-        </div>
+function checkUserRegistration(lineUid) {
+  try {
+    if (!lineUid || lineUid.trim() === "") return { registered: false, error: "ไม่พบรหัส LINE UID" };
 
-        <div class="mb-4">
-          <label class="form-label fw-bold text-secondary small">เบอร์โทรศัพท์ติดต่อ <span class="text-danger">*</span></label>
-          <input type="tel" class="form-control" id="phone" placeholder="เช่น 081-234-5678" required maxlength="12" oninput="formatPhone(this)">
-        </div>
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName("setup");
+    if (!sheet) return { registered: false, error: "ไม่พบแผ่นงาน setup" };
 
-        <button type="submit" id="btnSubmit" class="btn btn-submit shadow-sm"><i class="bi bi-check-circle-fill me-1"></i> ยืนยันการลงทะเบียน</button>
-      </form>
-    </div>
-  </div>
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { registered: false };
 
-  <!-- ========================================== -->
-  <!-- หน้าที่ 2: หน้าสแกนรถ (สำหรับคนที่ลงทะเบียนแล้ว) -->
-  <!-- ========================================== -->
-  <div class="card card-custom d-none" id="scanPortalCard">
-    <div class="header-bar">
-      <h5 class="fw-bold mb-1"><i class="bi bi-car-front-fill me-2"></i>ระบบใช้รถส่วนกลาง</h5>
-      <small class="opacity-75">พร้อมใช้งาน: <span id="portalUserName" class="fw-bold text-warning">-</span></small>
-    </div>
+    var data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
 
-    <!-- ส่วนปุ่มกดเปิดกล้องสแกน -->
-    <div class="card-body p-4 text-center" id="scanActionBox">
-      <button class="btn btn-primary btn-scan-circle mb-3" onclick="triggerScan()">
-        <i class="bi bi-qr-code-scan"></i>
-      </button>
-      <h5 class="fw-bold text-dark">กดเพื่อสแกน QR Code รถ</h5>
-      <p class="text-muted small">สแกนป้าย QR Code ที่ติดอยู่หน้ารถเพื่อตรวจสอบข้อมูล</p>
-
-      <div class="mt-4 pt-3 border-top text-start">
-        <label class="form-label small text-muted fw-bold">หรือค้นหาด้วยเลขทะเบียน / รหัสรถ</label>
-        <div class="input-group">
-          <input type="text" class="form-control" id="manualCarInput" placeholder="เช่น CAR-001 หรือ 1234">
-          <button class="btn btn-primary" type="button" onclick="searchManualCar()"><i class="bi bi-search"></i> ค้นหา</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ส่วนแสดงรายละเอียดรถหลังสแกนเจอ -->
-    <div class="card-body p-4 pt-3 d-none" id="vehicleResultBox">
-      <div class="text-center mb-3">
-        <span id="carStatusBadge" class="badge bg-success info-badge">พร้อมใช้งาน</span>
-        <h3 class="fw-bold text-primary mt-2 mb-0" id="resPlateNumber">-</h3>
-        <div class="text-secondary fw-bold small" id="resCarId">(CAR-XXX)</div>
-      </div>
-
-      <div class="card bg-light border-0 p-3 mb-3 text-start">
-        <div class="d-flex justify-content-between mb-2">
-          <span class="text-muted small">ประเภท:</span>
-          <span class="fw-bold text-dark" id="resType">-</span>
-        </div>
-        <div class="d-flex justify-content-between mb-2">
-          <span class="text-muted small">ยี่ห้อ / รุ่น:</span>
-          <span class="fw-bold text-dark" id="resBrand">-</span>
-        </div>
-        <div class="d-flex justify-content-between mb-2">
-          <span class="text-muted small">ฝ่ายที่รับผิดชอบ:</span>
-          <span class="text-dark" id="resDept">-</span>
-        </div>
-        <div class="d-flex justify-content-between">
-          <span class="text-muted small">เชื้อเพลิง:</span>
-          <span class="text-dark" id="resFuel">-</span>
-        </div>
-
-        <div class="mileage-box mt-3">
-          <small class="text-primary fw-bold d-block">เลขไมล์ล่าสุด</small>
-          <span class="fs-4 fw-bold text-dark" id="resMileage">0</span> <small class="text-muted">กม.</small>
-        </div>
-      </div>
-
-      <div class="d-grid gap-2">
-        <button class="btn btn-primary py-2 fw-bold" onclick="proceedToRecord()">
-          <i class="bi bi-check2-circle me-1"></i> บันทึกขอใช้รถคันนี้
-        </button>
-        <button class="btn btn-outline-secondary py-2" onclick="resetScanState()">
-          <i class="bi bi-arrow-counterclockwise me-1"></i> สแกนคันใหม่
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script>
-    const LIFF_ID = "2011882870-Bs61VIj2";
-    const GAS_URL = "https://script.google.com/macros/s/AKfycby6sJT9_1ptaoLBTds03SDKJ8ZrHmChHCcKiLC0aehWAo2qqkl4ZEtUly0G385acAHv/exec";
-
-    let rosterList = [];
-    let currentUserProfile = null;
-    let currentScannedVehicle = null;
-
-    // JSONP สำหรับดึงข้อมูลทะลุบล็อก CORS
-    function fetchJSONP(url) {
-      return new Promise((resolve, reject) => {
-        const callbackName = 'jsonp_cb_' + Math.round(100000 * Math.random());
-        const script = document.createElement('script');
-
-        window[callbackName] = function(data) {
-          delete window[callbackName];
-          if (script.parentNode) script.parentNode.removeChild(script);
-          resolve(data);
+    for (var i = 0; i < data.length; i++) {
+      var currentUid = data[i][1] ? data[i][1].toString().trim() : "";
+      if (currentUid === lineUid.trim()) {
+        return {
+          registered: true,
+          userData: {
+            userId: data[i][0],
+            fullname: data[i][2],
+            position: data[i][3],
+            department: data[i][4],
+            phone: data[i][5],
+            role: data[i][6],
+            status: data[i][7]
+          }
         };
+      }
+    }
+    return { registered: false };
+  } catch (err) {
+    return { registered: false, error: err.toString() };
+  }
+}
 
-        script.onerror = function() {
-          delete window[callbackName];
-          if (script.parentNode) script.parentNode.removeChild(script);
-          reject(new Error("เชื่อมต่อ Google Apps Script ไม่สำเร็จ"));
+function getPreloadedRoster() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName("setup");
+    if (!sheet) return [];
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return [];
+
+    var data = sheet.getRange(2, 1, lastRow - 1, 7).getValues();
+    var roster = [];
+
+    for (var i = 0; i < data.length; i++) {
+      var uid = data[i][1] ? data[i][1].toString().trim() : "";
+      var name = data[i][2] ? data[i][2].toString().trim() : "";
+
+      if (name !== "" && uid === "") {
+        roster.push({
+          rowNum: i + 2,
+          userId: data[i][0] || "",
+          fullname: name,
+          position: data[i][3] || "",
+          department: data[i][4] || "",
+          phone: data[i][5] || "",
+          role: data[i][6] || "ผู้ใช้รถทั่วไป"
+        });
+      }
+    }
+    return roster;
+  } catch (err) {
+    return [];
+  }
+}
+
+function processRegistration(payload) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName("setup");
+    if (!sheet) return { success: false, error: "ไม่พบแผ่นงาน setup" };
+
+    var lineUid = payload.lineUid ? payload.lineUid.toString().trim() : "";
+    if (lineUid === "") return { success: false, error: "ไม่พบ LINE User ID" };
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      var existingUids = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+      for (var k = 0; k < existingUids.length; k++) {
+        if (existingUids[k][0].toString().trim() === lineUid) {
+          return { success: false, error: "บัญชี LINE นี้ถูกใช้งานลงทะเบียนไปแล้ว" };
+        }
+      }
+    }
+
+    var now = Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy HH:mm:ss");
+
+    if (payload.mode === "existing" && payload.rowNum) {
+      var targetRow = parseInt(payload.rowNum);
+      var checkUid = sheet.getRange(targetRow, 2).getValue().toString().trim();
+      if (checkUid !== "") {
+        return { success: false, error: "ขออภัย รายชื่อนี้เพิ่งมีผู้ผูกสิทธิ์ไปแล้ว" };
+      }
+
+      sheet.getRange(targetRow, 2).setValue(lineUid);
+      if (payload.phone) sheet.getRange(targetRow, 6).setValue(payload.phone);
+      sheet.getRange(targetRow, 8).setValue("พร้อมใช้งาน");
+      sheet.getRange(targetRow, 9).setValue(now);
+
+      return { success: true, mode: "linked" };
+    } else if (payload.mode === "new") {
+      var newUserId = payload.empId || ("USR-" + Utilities.formatString("%03d", lastRow));
+      var newRow = [
+        newUserId,
+        lineUid,
+        payload.fullname.trim(),
+        payload.position.trim(),
+        payload.department.trim(),
+        payload.phone.trim(),
+        payload.role || "ผู้ใช้รถทั่วไป",
+        "พร้อมใช้งาน",
+        now
+      ];
+      sheet.appendRow(newRow);
+      return { success: true, mode: "created" };
+    }
+
+    return { success: false, error: "รูปแบบคำขอไม่ถูกต้อง" };
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// =========================================================
+// 🚜 ฟังก์ชันหมวดยานพาหนะ/เครื่องจักรกล (แผ่นงาน vehicles)
+// =========================================================
+
+/**
+ * ค้นหารายละเอียดรถรายคันตาม car_id หรือเลขทะเบียน (ปรับปรุงให้ค้นหาแบบยืดหยุ่น)
+ */
+function getVehicleDetail(queryKey) {
+  try {
+    if (!queryKey || queryKey.toString().trim() === "") {
+      return { success: false, error: "ไม่ได้ระบุรหัสรถหรือเลขทะเบียน" };
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName("vehicles");
+    if (!sheet) return { success: false, error: "ไม่พบแผ่นงาน vehicles (กรุณาตรวจชื่อแท็บชีต)" };
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { success: false, error: "ยังไม่มีข้อมูลรถในระบบ" };
+
+    var data = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+    var rawTarget = queryKey.toString().trim().toLowerCase();
+    var numericTarget = rawTarget.replace(/[^0-9]/g, "");
+
+    for (var i = 0; i < data.length; i++) {
+      var currentCarId = data[i][0] ? data[i][0].toString().trim().toLowerCase() : "";
+      var currentPlate = data[i][1] ? data[i][1].toString().trim().toLowerCase() : "";
+      var plateNumbersOnly = currentPlate.replace(/[^0-9]/g, "");
+
+      var isMatch = false;
+
+      if (currentCarId === rawTarget || currentPlate === rawTarget) {
+        isMatch = true;
+      } else if (rawTarget.length >= 2 && (currentCarId.indexOf(rawTarget) !== -1 || currentPlate.indexOf(rawTarget) !== -1)) {
+        isMatch = true;
+      } else if (numericTarget.length >= 2 && plateNumbersOnly.indexOf(numericTarget) !== -1) {
+        isMatch = true;
+      }
+
+      if (isMatch) {
+        return {
+          success: true,
+          rowNum: i + 2,
+          vehicle: {
+            carId: data[i][0] ? data[i][0].toString().trim() : "",
+            plateNumber: data[i][1] ? data[i][1].toString().trim() : "",
+            type: data[i][2] || "-",
+            brandModel: data[i][3] || "-",
+            department: data[i][4] || "-",
+            currentMileage: Number(data[i][5]) || 0,
+            fuelType: data[i][6] || "-",
+            status: data[i][7] || "พร้อมใช้งาน",
+            driverUid: data[i][8] || "",
+            qrCodeUrl: data[i][9] || "",
+            note: data[i][10] || ""
+          }
         };
+      }
+    }
 
-        const separator = url.includes('?') ? '&' : '?';
-        script.src = `${url}${separator}callback=${callbackName}`;
-        document.body.appendChild(script);
+    return { success: false, error: "ไม่พบข้อมูลรถสำหรับคำค้น: \"" + queryKey + "\"" };
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  }
+}
+
+/**
+ * ดึงรายการรถเฉพาะที่สถานะ "พร้อมใช้งาน"
+ */
+function getAvailableVehicles() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName("vehicles");
+    if (!sheet) return { success: false, error: "ไม่พบแผ่นงาน vehicles" };
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { success: true, vehicles: [] };
+
+    var data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
+    var list = [];
+
+    for (var i = 0; i < data.length; i++) {
+      var status = data[i][7] ? data[i][7].toString().trim() : "พร้อมใช้งาน";
+      if (status === "พร้อมใช้งาน") {
+        list.push({
+          rowNum: i + 2,
+          carId: data[i][0],
+          plateNumber: data[i][1],
+          type: data[i][2],
+          brandModel: data[i][3],
+          department: data[i][4],
+          currentMileage: Number(data[i][5]) || 0
+        });
+      }
+    }
+
+    return { success: true, vehicles: list };
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  }
+}
+
+/**
+ * ดึงข้อมูลรถทั้งหมดในระบบ
+ */
+function getAllVehicles() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName("vehicles");
+    if (!sheet) return { success: false, error: "ไม่พบแผ่นงาน vehicles" };
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { success: true, vehicles: [] };
+
+    var data = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+    var list = [];
+
+    for (var i = 0; i < data.length; i++) {
+      list.push({
+        rowNum: i + 2,
+        carId: data[i][0],
+        plateNumber: data[i][1],
+        type: data[i][2],
+        brandModel: data[i][3],
+        department: data[i][4],
+        currentMileage: Number(data[i][5]) || 0,
+        fuelType: data[i][6],
+        status: data[i][7] || "พร้อมใช้งาน",
+        driverUid: data[i][8] || "",
+        qrCodeUrl: data[i][9] || "",
+        note: data[i][10] || ""
       });
     }
 
-    window.onload = async () => {
-      try {
-        await liff.init({ liffId: LIFF_ID });
+    return { success: true, vehicles: list };
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  }
+}
 
-        if (!liff.isLoggedIn()) {
-          liff.login();
-          return;
+/**
+ * บันทึกข้อมูลรถ (เพิ่มรถใหม่ หรือ แก้ไขข้อมูลรถเดิม)
+ */
+function saveVehicleData(payload) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName("vehicles");
+    if (!sheet) return { success: false, error: "ไม่พบแผ่นงาน vehicles" };
+
+    var lastRow = sheet.getLastRow();
+    var carId = payload.carId ? payload.carId.trim() : "";
+    var plateNumber = payload.plateNumber ? payload.plateNumber.trim() : "";
+
+    if (!plateNumber) return { success: false, error: "กรุณาระบุเลขทะเบียนรถ" };
+
+    if (payload.rowNum && parseInt(payload.rowNum) > 1) {
+      var row = parseInt(payload.rowNum);
+      if (carId) sheet.getRange(row, 1).setValue(carId);
+      sheet.getRange(row, 2).setValue(plateNumber);
+      if (payload.type) sheet.getRange(row, 3).setValue(payload.type);
+      if (payload.brandModel) sheet.getRange(row, 4).setValue(payload.brandModel);
+      if (payload.department) sheet.getRange(row, 5).setValue(payload.department);
+      if (payload.currentMileage !== undefined) sheet.getRange(row, 6).setValue(Number(payload.currentMileage));
+      if (payload.fuelType) sheet.getRange(row, 7).setValue(payload.fuelType);
+      if (payload.status) sheet.getRange(row, 8).setValue(payload.status);
+      if (payload.driverUid !== undefined) sheet.getRange(row, 9).setValue(payload.driverUid);
+      if (payload.note !== undefined) sheet.getRange(row, 11).setValue(payload.note);
+
+      return { success: true, mode: "updated" };
+    } else {
+      var newCarId = carId || ("CAR-" + Utilities.formatString("%03d", lastRow));
+      var qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=" + encodeURIComponent(newCarId);
+
+      var newRow = [
+        newCarId,
+        plateNumber,
+        payload.type || "รถยนต์ทั่วไป",
+        payload.brandModel || "-",
+        payload.department || "-",
+        Number(payload.currentMileage) || 0,
+        payload.fuelType || "ดีเซล",
+        payload.status || "พร้อมใช้งาน",
+        payload.driverUid || "",
+        qrUrl,
+        payload.note || ""
+      ];
+
+      sheet.appendRow(newRow);
+      return { success: true, mode: "created", carId: newCarId };
+    }
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// =========================================================
+// 📋 ฟังก์ชันหมวดบันทึกการใช้งาน (แผ่นงาน usage_logs)
+// =========================================================
+
+/**
+ * บันทึกเริ่มนำรถออกปฏิบัติงาน (Check-out)
+ * 1. บันทึกประวัติลงแผ่นงาน usage_logs
+ * 2. อัปเดตสถานะรถใน vehicles เป็น "กำลังใช้งาน"
+ */
+function processCheckoutVehicle(payload) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var logSheet = ss.getSheetByName("usage_logs");
+    var carSheet = ss.getSheetByName("vehicles");
+
+    if (!logSheet) return { success: false, error: "ไม่พบแผ่นงาน usage_logs (กรุณาสร้างแท็บชีต usage_logs)" };
+    if (!carSheet) return { success: false, error: "ไม่พบแผ่นงาน vehicles" };
+
+    var carId = (payload.carId || "").toString().trim();
+    var plateNumber = (payload.plateNumber || "").toString().trim();
+    var startMileage = Number(payload.startMileage);
+
+    if (!carId && !plateNumber) return { success: false, error: "ไม่พบข้อมูลระบุตัวรถ" };
+    if (isNaN(startMileage) || startMileage < 0) return { success: false, error: "กรุณาระบุเลขไมล์เริ่มต้นให้ถูกต้อง" };
+
+    // ค้นหารถในแผ่นงาน vehicles
+    var carLastRow = carSheet.getLastRow();
+    var targetRow = -1;
+    var currentMileage = 0;
+
+    if (carLastRow > 1) {
+      var carData = carSheet.getRange(2, 1, carLastRow - 1, 8).getValues();
+      for (var i = 0; i < carData.length; i++) {
+        var cId = (carData[i][0] || "").toString().trim().toLowerCase();
+        var pNum = (carData[i][1] || "").toString().trim().toLowerCase();
+
+        if (cId === carId.toLowerCase() || pNum === plateNumber.toLowerCase()) {
+          targetRow = i + 2;
+          currentMileage = Number(carData[i][5]) || 0;
+          break;
         }
-
-        const profile = await liff.getProfile();
-        currentUserProfile = profile;
-        document.getElementById("lineUid").value = profile.userId;
-        document.getElementById("lineName").textContent = profile.displayName;
-        if (profile.pictureUrl) document.getElementById("userAvatar").src = profile.pictureUrl;
-
-        // เช็กประวัติการลงทะเบียน
-        const res = await fetchJSONP(`${GAS_URL}?action=checkUser&lineUid=${encodeURIComponent(profile.userId)}`);
-        
-        document.getElementById("loading").style.display = "none";
-
-        if (res.registered) {
-          // 👉 ผู้ใช้เคยลงทะเบียนแล้ว: สลับไปหน้าสแกนรถทันที
-          document.getElementById("portalUserName").textContent = res.userData.fullname;
-          document.getElementById("scanPortalCard").classList.remove("d-none");
-        } else {
-          // 👉 ผู้ใช้ใหม่: แสดงฟอร์มลงทะเบียน
-          document.getElementById("mainCard").classList.remove("d-none");
-          loadPreloadedRoster();
-        }
-
-      } catch (err) {
-        document.getElementById("loading").style.display = "none";
-        Swal.fire("ข้อผิดพลาด", "ไม่สามารถเริ่มต้นระบบได้: " + err.message, "error");
       }
+    }
+
+    if (targetRow === -1) {
+      return { success: false, error: "ไม่พบรถคันนี้ในฐานข้อมูล" };
+    }
+
+    // ตรวจสอบความถูกต้องของเลขไมล์เริ่มต้น
+    if (startMileage < currentMileage) {
+      return { 
+        success: false, 
+        error: "เลขไมล์เริ่มต้น (" + startMileage + ") ต้องไม่น้อยกว่าเลขไมล์ล่าสุด (" + currentMileage + ")" 
+      };
+    }
+
+    // สร้าง Log ID อัตโนมัติ (LOG-YYYYMMDD-XXX)
+    var now = new Date();
+    var datePrefix = Utilities.formatDate(now, "GMT+7", "yyyyMMdd");
+    var timeFormatted = Utilities.formatDate(now, "GMT+7", "dd/MM/yyyy HH:mm:ss");
+    var logLastRow = logSheet.getLastRow();
+    var logId = "LOG-" + datePrefix + "-" + Utilities.formatString("%03d", logLastRow);
+
+    // 1. เพิ่มแถวใหม่ใน usage_logs
+    var newLog = [
+      logId,
+      carId,
+      plateNumber,
+      (payload.driverName || "-").toString().trim(),
+      (payload.driverUid || "").toString().trim(),
+      (payload.purpose || "-").toString().trim(),
+      timeFormatted,
+      startMileage,
+      "", // end_time (รอ Check-in)
+      "", // end_mileage (รอ Check-in)
+      "", // total_distance (รอ Check-in)
+      "", // issue_reported (รอ Check-in)
+      "กำลังใช้งาน"
+    ];
+    logSheet.appendRow(newLog);
+
+    // 2. อัปเดตข้อมูลรถในแผ่นงาน vehicles
+    carSheet.getRange(targetRow, 6).setValue(startMileage); // Col F: current_mileage
+    carSheet.getRange(targetRow, 8).setValue("กำลังใช้งาน"); // Col H: status
+    if (payload.driverUid) {
+      carSheet.getRange(targetRow, 9).setValue(payload.driverUid); // Col I: driver_uid
+    }
+
+    return { 
+      success: true, 
+      logId: logId, 
+      plateNumber: plateNumber,
+      startMileage: startMileage 
     };
 
-    // ==========================================
-    // ส่วนฟังก์ชันสแกนและค้นหารถ
-    // ==========================================
-    async function triggerScan() {
-      if (liff.scanCodeV2) {
-        try {
-          const res = await liff.scanCodeV2();
-          if (res && res.value) {
-            lookupCar(res.value);
-          }
-        } catch (err) {
-          Swal.fire("แจ้งเตือน", "เปิดกล้องไม่สำเร็จหรือยกเลิก: " + err.message, "warning");
-        }
-      } else {
-        Swal.fire("แจ้งเตือน", "อุปกรณ์ไม่รองรับการสแกนผ่าน LIFF กรุณาใช้ช่องพิมพ์ค้นหาด้านล่าง", "info");
-      }
-    }
-
-    function searchManualCar() {
-      const val = document.getElementById("manualCarInput").value.trim();
-      if (!val) return Swal.fire("แจ้งเตือน", "กรุณาระบุเลขทะเบียนหรือรหัสรถ", "warning");
-      lookupCar(val);
-    }
-
-    async function lookupCar(carKey) {
-      Swal.fire({
-        title: 'กำลังค้นหาข้อมูลรถ...',
-        allowOutsideClick: false,
-        didOpen: () => { Swal.showLoading(); }
-      });
-
-      try {
-        const res = await fetchJSONP(`${GAS_URL}?action=getVehicle&carId=${encodeURIComponent(carKey)}`);
-        Swal.close();
-
-        if (res.success && res.vehicle) {
-          currentScannedVehicle = res.vehicle;
-          showScannedVehicle(res.vehicle);
-        } else {
-          Swal.fire("ไม่พบข้อมูล", res.error || "ไม่พบยานพาหนะนี้ในระบบ", "error");
-        }
-      } catch (err) {
-        Swal.close();
-        Swal.fire("ขัดข้อง", "ไม่สามารถดึงข้อมูลได้: " + err.message, "error");
-      }
-    }
-
-    function showScannedVehicle(v) {
-      document.getElementById("resPlateNumber").textContent = v.plateNumber || "-";
-      document.getElementById("resCarId").textContent = `(${v.carId || "-"})`;
-      document.getElementById("resType").textContent = v.type || "-";
-      document.getElementById("resBrand").textContent = v.brandModel || "-";
-      document.getElementById("resDept").textContent = v.department || "-";
-      document.getElementById("resFuel").textContent = v.fuelType || "-";
-      document.getElementById("resMileage").textContent = Number(v.currentMileage || 0).toLocaleString();
-
-      const badge = document.getElementById("carStatusBadge");
-      badge.textContent = v.status || "พร้อมใช้งาน";
-      if (v.status === "พร้อมใช้งาน") {
-        badge.className = "badge bg-success info-badge";
-      } else if (v.status === "กำลังใช้งาน") {
-        badge.className = "badge bg-warning text-dark info-badge";
-      } else {
-        badge.className = "badge bg-danger info-badge";
-      }
-
-      document.getElementById("scanActionBox").classList.add("d-none");
-      document.getElementById("vehicleResultBox").classList.remove("d-none");
-    }
-
-    function resetScanState() {
-      currentScannedVehicle = null;
-      document.getElementById("manualCarInput").value = "";
-      document.getElementById("vehicleResultBox").classList.add("d-none");
-      document.getElementById("scanActionBox").classList.remove("d-none");
-    }
-
-    function proceedToRecord() {
-      if (!currentScannedVehicle) return;
-      Swal.fire({
-        icon: 'success',
-        title: 'พร้อมบันทึกการใช้รถ',
-        text: `เลือกรถทะเบียน ${currentScannedVehicle.plateNumber} สำเร็จ`
-      });
-    }
-
-    // ==========================================
-    // ส่วนฟังก์ชันลงทะเบียนเดิม
-    // ==========================================
-    async function loadPreloadedRoster() {
-      try {
-        const data = await fetchJSONP(`${GAS_URL}?action=getRoster`);
-        rosterList = data || [];
-        const select = document.getElementById("selectRoster");
-        select.innerHTML = '<option value="">-- กรุณาเลือกชื่อ / ID ของท่าน --</option>';
-        if (rosterList.length === 0) {
-          select.innerHTML = '<option value="" disabled>-- ไม่พบรายชื่อ (กรุณาสลับไปเพิ่มรายชื่อใหม่) --</option>';
-          return;
-        }
-        rosterList.forEach((item, idx) => {
-          let opt = document.createElement("option");
-          opt.value = idx;
-          opt.textContent = `${item.fullname} (${item.department})`;
-          select.appendChild(opt);
-        });
-      } catch (err) {
-        console.error(err);
-      }
-    }
-
-    function switchMode(mode) {
-      document.getElementById("currentMode").value = mode;
-      document.getElementById("btnTabExisting").classList.toggle("active", mode === "existing");
-      document.getElementById("btnTabNew").classList.toggle("active", mode === "new");
-      document.getElementById("section-existing").classList.toggle("d-none", mode !== "existing");
-      document.getElementById("section-new").classList.toggle("d-none", mode !== "new");
-    }
-
-    function onRosterSelected() {
-      const idx = document.getElementById("selectRoster").value;
-      const preview = document.getElementById("previewBox");
-      if (idx !== "") {
-        const sel = rosterList[idx];
-        document.getElementById("prevPosition").textContent = sel.position || "-";
-        document.getElementById("prevDept").textContent = sel.department || "-";
-        document.getElementById("prevRole").innerHTML = `<i class="bi bi-shield-lock me-1"></i>สิทธิ์: ${sel.role}`;
-        if (sel.phone) document.getElementById("phone").value = sel.phone;
-        preview.classList.remove("d-none");
-      } else {
-        preview.classList.add("d-none");
-      }
-    }
-
-    function formatPhone(input) {
-      let val = input.value.replace(/[^0-9]/g, "");
-      if (val.length > 3 && val.length <= 6) input.value = val.slice(0, 3) + "-" + val.slice(3);
-      else if (val.length > 6) input.value = val.slice(0, 3) + "-" + val.slice(3, 6) + "-" + val.slice(6, 10);
-      else input.value = val;
-    }
-
-    async function handleSubmit(e) {
-      e.preventDefault();
-      const mode = document.getElementById("currentMode").value;
-      const phone = document.getElementById("phone").value.trim();
-
-      if (!phone || phone.length < 11) return Swal.fire("แจ้งเตือน", "กรุณากรอกเบอร์โทรศัพท์ให้ครบถ้วน", "warning");
-
-      let payload = { lineUid: document.getElementById("lineUid").value, mode: mode, phone: phone };
-
-      if (mode === "existing") {
-        const selectIdx = document.getElementById("selectRoster").value;
-        if (selectIdx === "") return Swal.fire("แจ้งเตือน", "กรุณาเลือกรายชื่อของท่าน", "warning");
-        payload.rowNum = rosterList[selectIdx].rowNum;
-        payload.fullname = rosterList[selectIdx].fullname;
-      } else {
-        payload.empId = document.getElementById("empId").value.trim();
-        payload.fullname = document.getElementById("fullname").value.trim();
-        payload.position = document.getElementById("position").value.trim();
-        payload.department = document.getElementById("department").value.trim();
-        payload.role = document.getElementById("role").value;
-        if (!payload.fullname || !payload.position || !payload.department) {
-          return Swal.fire("แจ้งเตือน", "กรุณากรอกข้อมูลให้ครบทุกช่อง", "warning");
-        }
-      }
-
-      const btn = document.getElementById("btnSubmit");
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>กำลังบันทึกข้อมูล...';
-
-      try {
-        await fetch(GAS_URL, {
-          method: "POST",
-          mode: "no-cors",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify(payload)
-        });
-
-        Swal.fire({
-          icon: 'success',
-          title: 'สำเร็จ!',
-          text: 'ลงทะเบียนผูกสิทธิ์เรียบร้อยแล้ว'
-        }).then(() => {
-          window.location.reload(); // รีโหลดเพื่อให้สลับไปหน้าสแกนรถทันที
-        });
-
-      } catch (err) {
-        Swal.fire("ขัดข้อง", "ส่งข้อมูลไม่สำเร็จ: " + err.toString(), "error");
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> ยืนยันการลงทะเบียน';
-      }
-    }
-  </script>
-</body>
-</html>
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
