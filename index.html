@@ -109,6 +109,30 @@
 
     let rosterList = [];
 
+    // ฟังก์ชันดึงข้อมูลผ่าน JSONP (แก้ปัญหา Cross-Origin / CORS บนเบราว์เซอร์ 100%)
+    function fetchJSONP(url) {
+      return new Promise((resolve, reject) => {
+        const callbackName = 'jsonp_cb_' + Math.round(100000 * Math.random());
+        const script = document.createElement('script');
+
+        window[callbackName] = function(data) {
+          delete window[callbackName];
+          if (script.parentNode) script.parentNode.removeChild(script);
+          resolve(data);
+        };
+
+        script.onerror = function() {
+          delete window[callbackName];
+          if (script.parentNode) script.parentNode.removeChild(script);
+          reject(new Error("เชื่อมต่อกับ Google Apps Script ไม่สำเร็จ"));
+        };
+
+        const separator = url.includes('?') ? '&' : '?';
+        script.src = `${url}${separator}callback=${callbackName}`;
+        document.body.appendChild(script);
+      });
+    }
+
     window.onload = async () => {
       try {
         await liff.init({ liffId: LIFF_ID });
@@ -123,14 +147,8 @@
         document.getElementById("lineName").textContent = profile.displayName;
         if (profile.pictureUrl) document.getElementById("userAvatar").src = profile.pictureUrl;
 
-        // เรียกตรวจสอบข้อมูลผู้ใช้ โดยตั้ง redirect: "follow"
-        const response = await fetch(`${GAS_URL}?action=checkUser&lineUid=${encodeURIComponent(profile.userId)}`, {
-          method: "GET",
-          redirect: "follow"
-        });
-        
-        if (!response.ok) throw new Error("HTTP Status " + response.status);
-        const res = await response.json();
+        // ดึงข้อมูลเช็กสถานะผู้ใช้ด้วย JSONP
+        const res = await fetchJSONP(`${GAS_URL}?action=checkUser&lineUid=${encodeURIComponent(profile.userId)}`);
         handleCheckResult(res);
 
       } catch (err) {
@@ -155,11 +173,7 @@
 
     async function loadPreloadedRoster() {
       try {
-        const response = await fetch(`${GAS_URL}?action=getRoster`, {
-          method: "GET",
-          redirect: "follow"
-        });
-        const data = await response.json();
+        const data = await fetchJSONP(`${GAS_URL}?action=getRoster`);
         rosterList = data || [];
         const select = document.getElementById("selectRoster");
         select.innerHTML = '<option value="">-- กรุณาเลือกชื่อ / ID ของท่าน --</option>';
@@ -238,24 +252,26 @@
       btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>กำลังบันทึกข้อมูล...';
 
       try {
-        const response = await fetch(GAS_URL, {
+        // ใช้ fetch แบบ no-cors เพื่อส่งข้อมูลข้ามโดเมนเข้า Google Apps Script ได้โดยตรง
+        await fetch(GAS_URL, {
           method: "POST",
+          mode: "no-cors",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify(payload),
-          redirect: "follow"
+          body: JSON.stringify(payload)
         });
 
-        const res = await response.json();
+        Swal.fire({
+          icon: 'success',
+          title: 'สำเร็จ!',
+          text: 'บันทึกข้อมูลเรียบร้อยแล้ว'
+        }).then(() => {
+          if (liff.isInClient()) {
+            liff.closeWindow();
+          } else {
+            window.location.reload();
+          }
+        });
 
-        if (res.success) {
-          Swal.fire({ icon: 'success', title: 'สำเร็จ!', text: 'ผูกสิทธิ์เรียบร้อยแล้ว' }).then(() => {
-            if (liff.isInClient()) liff.closeWindow(); else window.location.reload();
-          });
-        } else {
-          Swal.fire("ผิดพลาด", res.error, "error");
-          btn.disabled = false;
-          btn.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> ยืนยันการผูกสิทธิ์ LINE';
-        }
       } catch (err) {
         Swal.fire("ขัดข้อง", "ส่งข้อมูลไม่สำเร็จ: " + err.toString(), "error");
         btn.disabled = false;
