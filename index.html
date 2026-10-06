@@ -534,7 +534,7 @@
       document.getElementById("scanActionBox").classList.remove("d-none");
     }
 
-    // ส่งบันทึกเริ่มงาน (Check-out)
+// ส่งบันทึกเริ่มงาน (Check-out) ตอบสนองทันใจ
     async function submitCheckout(e) {
       e.preventDefault();
       if (!currentScannedVehicle || !currentUser) return;
@@ -562,20 +562,35 @@
       };
 
       try {
-        await fetch(GAS_URL, {
+        // ส่งข้อมูลไป Apps Script
+        const sendPromise = fetch(GAS_URL, {
           method: "POST",
           mode: "no-cors",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify(payload)
         });
 
-        // สั่งอัปเดตแคชรถในเครื่องเบื้องหลังทันที
+        // ⚡ ตัดรอบรอ Redirect: ถ้าส่งข้อมูลไปแล้วเกิน 1.2 วิ ให้ถือว่าสำเร็จทันที
+        const waitCap = new Promise(resolve => setTimeout(resolve, 1200));
+        await Promise.race([sendPromise, waitCap]);
+
+        // อัปเดตข้อมูลรถในเครื่องทันที
+        if (vehiclesDatabase && vehiclesDatabase.length > 0) {
+          const v = vehiclesDatabase.find(item => item.carId === currentScannedVehicle.carId);
+          if (v) {
+            v.status = "กำลังใช้งาน";
+            v.currentMileage = startMileage;
+            localStorage.setItem("fleet_vehicles_cache", JSON.stringify(vehiclesDatabase));
+          }
+        }
         preloadVehiclesBackground();
 
         Swal.fire({
           icon: 'success',
           title: 'บันทึกเริ่มงานสำเร็จ!',
-          html: `นำรถทะเบียน <b>${currentScannedVehicle.plateNumber}</b> ออกปฏิบัติงาน<br>เลขไมล์เริ่มต้น: <b>${startMileage.toLocaleString()}</b>`
+          html: `นำรถทะเบียน <b>${currentScannedVehicle.plateNumber}</b> ออกปฏิบัติงาน<br>เลขไมล์เริ่มต้น: <b>${startMileage.toLocaleString()}</b>`,
+          timer: 1800,
+          showConfirmButton: true
         }).then(() => {
           if (liff.isInClient()) liff.closeWindow(); else resetScanState();
         });
