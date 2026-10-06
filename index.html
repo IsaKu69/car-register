@@ -169,7 +169,7 @@
           <span class="text-muted">เริ่มงานเมื่อ: <span id="activeStartTime">-</span> | ไมล์เริ่ม: <b id="activeStartMile">0</b></span>
         </div>
 
-        <!-- กล่องกรอกรหัสยืนยันตัวตน (จะแสดงขึ้นมาเมื่อไม่ใช่คนขับคนเดิม) -->
+        <!-- กล่องกรอกรหัสยืนยันตัวตน (กรณีไม่ใช่คนขับเดิม) -->
         <div class="card border-warning bg-warning bg-opacity-10 p-3 mb-3 d-none" id="authBox">
           <label class="form-label fw-bold text-dark small mb-1">
             <i class="bi bi-shield-lock-fill text-warning me-1"></i> ยืนยันสิทธิ์การส่งคืนรถแทน <span class="text-danger">*</span>
@@ -185,7 +185,7 @@
           <input type="number" step="any" class="form-control border-success" id="endMileageInput" required placeholder="ระบุเลขไมล์หน้าปัดจริง" oninput="calculateTripDistance()">
         </div>
 
-        <!-- กล่องคำนวณระยะทางรวมอัตโนมัติ -->
+        <!-- กล่องคำนวณระยะทางรวม -->
         <div class="distance-preview-box mb-3 d-none" id="tripDistanceBox">
           <small class="text-success fw-bold d-block">ระยะทางรวมที่ใช้งานในภารกิจนี้</small>
           <span class="fs-4 fw-bold text-success" id="tripDistanceVal">0</span> <small class="text-muted">กม./ชม.</small>
@@ -224,11 +224,11 @@
     let currentScannedVehicle = null;
     let currentActiveLog = null;
 
-    // ⚡ ฐานข้อมูลรถในหน่วยความจำเครื่อง เพื่อการค้นหาด่วนระดับ 0.01 วินาที
+    // ฐานข้อมูลรถในหน่วยความจำเครื่อง
     let vehiclesDatabase = [];
     let isVehiclesReady = false;
 
-    // ⚡ ดึงแคชเดิมของรถจากหน่วยความจำเครื่องทันทีตั้งแต่วินาทีที่ 0
+    // ดึงแคชเดิมของรถจากเครื่องทันทีตั้งแต่วินาทีที่ 0
     const cachedVehicles = localStorage.getItem("fleet_vehicles_cache");
     if (cachedVehicles) {
       try {
@@ -240,7 +240,7 @@
     }
 
     /**
-     * ดึงข้อมูลผ่าน Google Apps Script แบบมาตรฐาน (fetchGAS) รวดเร็ว ไม่ติดค้าง Timeout 12 วิ
+     * ดึงข้อมูลผ่าน fetchGAS (GET แบบมาตรฐาน)
      */
     async function fetchGAS(action, params = {}) {
       const url = new URL(GAS_URL);
@@ -265,7 +265,9 @@
       return await response.json();
     }
 
-    // ⚡ แอบดึงข้อมูลรถล่าสุดมาอัปเดตลงเครื่องเงียบ ๆ เบื้องหลัง
+    /**
+     * แอบดึงข้อมูลรถล่าสุดมาอัปเดตลงเครื่องเงียบๆ เบื้องหลัง
+     */
     async function preloadVehiclesBackground() {
       try {
         const res = await fetchGAS("getAllVehicles");
@@ -273,15 +275,31 @@
           vehiclesDatabase = res.vehicles;
           isVehiclesReady = true;
           localStorage.setItem("fleet_vehicles_cache", JSON.stringify(res.vehicles));
-          console.log("พรีโหลดข้อมูลรถสำเร็จ:", res.vehicles.length, "คัน");
+          console.log("อัปเดตข้อมูลรถในเครื่องสำเร็จ:", res.vehicles.length, "คัน");
         }
       } catch (err) {
         console.warn("แอบโหลดข้อมูลรถไม่สำเร็จ:", err);
       }
     }
 
+    /**
+     * ⚡ ฟังก์ชันตรวจนับรถที่ผู้ใช้คนนี้กำลังถือครองอยู่จริงในแคช
+     */
+    function getMyHoldingCars() {
+      if (!currentUser || !currentUser.lineUid || currentUser.lineUid === "PC-DESKTOP") return [];
+      if (!vehiclesDatabase || vehiclesDatabase.length === 0) return [];
+      const myUid = String(currentUser.lineUid).trim().toLowerCase();
+
+      return vehiclesDatabase.filter(car => {
+        if (car.status !== "กำลังใช้งาน") return false;
+        const cDriver = String(car.driverUid || "").trim().toLowerCase();
+        const logDriver = String(car.activeLog && car.activeLog.driverUid ? car.activeLog.driverUid : "").trim().toLowerCase();
+        return cDriver === myUid || logDriver === myUid;
+      });
+    }
+
     window.onload = async () => {
-      // สเต็ป 1: ดึงโปรไฟล์เดิมในเครื่องขึ้นมาแสดงทันทีก่อนใน 0.1 - 0.2 วินาที
+      // ดึงโปรไฟล์เดิมในเครื่องขึ้นมาแสดงทันที
       const cachedUser = localStorage.getItem("fleet_user_profile");
       if (cachedUser) {
         try {
@@ -295,7 +313,7 @@
         }
       }
 
-      // สเต็ป 2: เชื่อมต่อ LINE LIFF และตรวจสอบสิทธิ์เบื้องหลัง
+      // เริ่มต้น LINE LIFF และตรวจสอบสิทธิ์/โควตาล่าสุด
       try {
         await liff.init({ liffId: LIFF_ID });
 
@@ -305,8 +323,8 @@
           document.getElementById("lineName").textContent = profile.displayName;
           if (profile.pictureUrl) document.getElementById("userAvatar").src = profile.pictureUrl;
 
-          // ถ้าไม่มีแคช หรือ UID ไม่ตรง ให้ถามเซิร์ฟเวอร์เพื่ออัปเดตโปรไฟล์และสิทธิ์ quota ล่าสุด
-          if (!currentUser || currentUser.lineUid !== profile.userId) {
+          // ⚡ ถ้าไม่มีแคช หรือ UID ไม่ตรง หรือยังไม่มีฟิลด์ quota ในเครื่อง ให้อัปเดตใหม่ทันที
+          if (!currentUser || currentUser.lineUid !== profile.userId || currentUser.quota === undefined) {
             const res = await fetchGAS("checkUser", { lineUid: profile.userId });
             document.getElementById("loading").style.display = "none";
 
@@ -367,7 +385,7 @@
       lookupCar(val);
     }
 
-    // ⚡ ค้นหารถความเร็วสูง (Instant Lookup - ค้นหาในเครื่องก่อน ไม่ติดหน้าต่างหมุนรอ)
+    // ค้นหารถความเร็วสูง (Instant Lookup จากหน่วยความจำเครื่อง)
     async function lookupCar(carKey) {
       let rawTarget = String(carKey || "").trim();
       if (!rawTarget) return Swal.fire("แจ้งเตือน", "กรุณาระบุเลขทะเบียนหรือรหัสรถ", "warning");
@@ -381,31 +399,22 @@
                       urlObj.searchParams.get("plate") || 
                       rawTarget;
         }
-      } catch (e) {
-        // หาก parse URL ไม่ผ่าน ให้ใช้สตริงเดิม
-      }
+      } catch (e) {}
 
       const cleanTarget = rawTarget.toLowerCase();
       const numTarget = cleanTarget.replace(/[^0-9]/g, "");
 
-      // ⚡ ค้นหาจากหน่วยความจำเครื่องทันที
+      // ค้นหาจากหน่วยความจำเครื่องทันที
       if (isVehiclesReady && vehiclesDatabase.length > 0) {
         const matched = vehiclesDatabase.find(v => {
           const cId = (v.carId || "").toLowerCase();
           const pNum = (v.plateNumber || "").toLowerCase();
           const pDigits = pNum.replace(/[^0-9]/g, "");
 
-          // 1. ตรวจสอบแบบตรงเป๊ะ
           if (cId === cleanTarget || pNum === cleanTarget) return true;
-
-          // 2. ตรวจสอบกรณี QR Code เป็น URL หรือข้อความยาวที่มีรหัสรถแฝงอยู่
           if (cId && cleanTarget.includes(cId)) return true;
           if (pNum && cleanTarget.includes(pNum)) return true;
-
-          // 3. ตรวจสอบกรณีพิมพ์ค้นหาบางส่วน
           if (cleanTarget.length >= 2 && (cId.includes(cleanTarget) || pNum.includes(cleanTarget))) return true;
-
-          // 4. ตรวจสอบเฉพาะตัวเลขทะเบียน
           if (numTarget.length >= 2 && pDigits.includes(numTarget)) return true;
 
           return false;
@@ -415,11 +424,11 @@
           currentScannedVehicle = matched;
           currentActiveLog = matched.activeLog || null;
           showScannedVehicle(matched, matched.activeLog);
-          return; // ⚡ เจอปุ๊บ แสดงผลทันทีใน 0.01 วินาที
+          return;
         }
       }
 
-      // หากไม่พบในเครื่องจริง ๆ จึงยิงถามเซิร์ฟเวอร์สด
+      // หากไม่พบในเครื่อง จึงยิงถามเซิร์ฟเวอร์สด
       Swal.fire({
         title: 'กำลังค้นหาข้อมูลรถ...',
         allowOutsideClick: false,
@@ -457,7 +466,7 @@
 
       badge.textContent = v.status || "พร้อมใช้งาน";
 
-      // 1. รถกำลังใช้งาน -> สลับเข้าฟอร์ม Check-in (ส่งคืนรถ)
+      // 1. รถกำลังใช้งาน -> ฟอร์ม Check-in (ส่งคืนรถ)
       if (v.status === "กำลังใช้งาน") {
         badge.className = "badge bg-warning text-dark info-badge";
         checkoutForm.classList.add("d-none");
@@ -476,7 +485,7 @@
         document.getElementById("issueInput").value = "";
         document.getElementById("checkDamageFlag").checked = false;
 
-        // ตรวจสอบว่าผู้ที่เปิดอยู่เป็นคนขับคนเดิมหรือไม่
+        // ตรวจสอบว่าคนเปิดเป็นคนขับคนเดิมหรือไม่
         if (currentUser && currentUser.lineUid && currentUser.lineUid === originalDriverUid) {
           authBox.classList.add("d-none");
           verifyInput.required = false;
@@ -499,8 +508,28 @@
         startInput.value = mileageVal;
         startInput.min = mileageVal;
         document.getElementById("purposeInput").value = "";
-        document.getElementById("btnSubmitCheckout").disabled = false;
-        document.getElementById("btnSubmitCheckout").innerHTML = '<i class="bi bi-box-arrow-right me-1"></i> บันทึกเริ่มงาน (นำรถออก)';
+
+        const btnSubmit = document.getElementById("btnSubmitCheckout");
+        const myHolding = getMyHoldingCars();
+        const maxQuota = Number(currentUser?.quota) || 1;
+
+        // ⚡ ตรวจจับสิทธิ์ quota ทันทีตั้งแต่ตอนสแกน
+        if (currentUser && currentUser.lineUid !== "PC-DESKTOP" && myHolding.length >= maxQuota) {
+          btnSubmit.disabled = true;
+          btnSubmit.className = "btn btn-secondary py-2 fw-bold";
+          btnSubmit.innerHTML = '<i class="bi bi-slash-circle me-1"></i> เกินสิทธิ์การเบิกรถ';
+
+          const plates = myHolding.map(c => c.plateNumber).join(", ");
+          Swal.fire({
+            icon: 'warning',
+            title: 'เกินสิทธิ์การเบิกรถ',
+            html: `ท่านมีสิทธิ์เบิกรถได้สูงสุด <b>${maxQuota}</b> คัน<br>ขณะนี้มีรถค้างอยู่ <b>${myHolding.length}</b> คัน (ทะเบียน <b>${plates}</b>)<br><br><span class="text-danger small">* กรุณาส่งคืนรถคันเดิมก่อนเบิกคันใหม่</span>`
+          });
+        } else {
+          btnSubmit.disabled = false;
+          btnSubmit.className = "btn btn-primary py-2 fw-bold";
+          btnSubmit.innerHTML = '<i class="bi bi-box-arrow-right me-1"></i> บันทึกเริ่มงาน (นำรถออก)';
+        }
       } 
       // 3. รถส่งซ่อม
       else {
@@ -508,6 +537,7 @@
         checkinForm.classList.add("d-none");
         checkoutForm.classList.remove("d-none");
         document.getElementById("btnSubmitCheckout").disabled = true;
+        document.getElementById("btnSubmitCheckout").className = "btn btn-secondary py-2 fw-bold";
         document.getElementById("btnSubmitCheckout").innerHTML = '<i class="bi bi-tools me-1"></i> รถไม่พร้อมใช้งาน (ส่งซ่อม)';
       }
 
@@ -538,28 +568,20 @@
       document.getElementById("scanActionBox").classList.remove("d-none");
     }
 
-    // ⚡ ส่งบันทึกเริ่มงาน (Check-out) พร้อมตรวจสอบสิทธิ์ quota ในเครื่องทันที
+    // ⚡ ส่งบันทึกเริ่มงาน (Check-out) พร้อมดักเตือน Error จริงจาก Apps Script
     async function submitCheckout(e) {
       e.preventDefault();
       if (!currentScannedVehicle || !currentUser) return;
 
-      // ⚡ ตรวจสอบโควตาสิทธิ์ quota ทันทีในเครื่อง (ตรวจจับไวใน 0.01 วินาที)
+      const myHolding = getMyHoldingCars();
       const maxQuota = Number(currentUser.quota) || 1;
-      if (currentUser.lineUid && currentUser.lineUid !== "PC-DESKTOP" && vehiclesDatabase && vehiclesDatabase.length > 0) {
-        const holdingCars = vehiclesDatabase.filter(v => 
-          v.status === "กำลังใช้งาน" && 
-          v.driverUid && 
-          v.driverUid === currentUser.lineUid
-        );
-
-        if (holdingCars.length >= maxQuota) {
-          const plates = holdingCars.map(v => v.plateNumber).join(", ");
-          return Swal.fire({
-            icon: 'warning',
-            title: 'เกินสิทธิ์การเบิกรถ',
-            html: `ท่านมีสิทธิ์เบิกรถได้สูงสุด <b>${maxQuota}</b> คัน<br>ขณะนี้เบิกค้างอยู่ <b>${holdingCars.length}</b> คัน (ทะเบียน <b>${plates}</b>)<br><br><span class="text-danger small">* กรุณาส่งคืนรถคันเดิมก่อนเบิกคันใหม่</span>`
-          });
-        }
+      if (currentUser.lineUid && currentUser.lineUid !== "PC-DESKTOP" && myHolding.length >= maxQuota) {
+        const plates = myHolding.map(c => c.plateNumber).join(", ");
+        return Swal.fire({
+          icon: 'warning',
+          title: 'เกินสิทธิ์การเบิกรถ',
+          html: `ท่านมีสิทธิ์เบิกได้สูงสุด <b>${maxQuota}</b> คัน<br>ขณะนี้มีรถค้างอยู่: <b>${plates}</b>`
+        });
       }
 
       const startMileage = Number(document.getElementById("startMileageInput").value);
@@ -585,18 +607,22 @@
       };
 
       try {
-        const sendPromise = fetch(GAS_URL, {
+        const response = await fetch(GAS_URL, {
           method: "POST",
-          mode: "no-cors",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify(payload)
         });
 
-        // ⚡ ตัดรอบรอ Redirect: ถ้าส่งข้อมูลไปแล้วเกิน 1.2 วิ ถือว่าบันทึกลงชีตสำเร็จทันที
-        const waitCap = new Promise(resolve => setTimeout(resolve, 1200));
-        await Promise.race([sendPromise, waitCap]);
+        const res = await response.json();
 
-        // อัปเดตสถานะรถในหน่วยความจำเครื่องทันที
+        // แจ้งเตือนข้อผิดพลาดจริงหากเซิร์ฟเวอร์ปฏิเสธ
+        if (!res.success) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-box-arrow-right me-1"></i> บันทึกเริ่มงาน (นำรถออก)';
+          return Swal.fire("ไม่สามารถเบิกรถได้", res.error || "บันทึกข้อมูลไม่สำเร็จ", "error");
+        }
+
+        // สำเร็จ: อัปเดตข้อมูลรถในเครื่องทันที
         if (vehiclesDatabase && vehiclesDatabase.length > 0) {
           const v = vehiclesDatabase.find(item => item.carId === currentScannedVehicle.carId);
           if (v) {
@@ -625,7 +651,7 @@
       }
     }
 
-    // ⚡ ส่งบันทึกส่งคืนรถ (Check-in) พร้อมระบบ Fast Response
+    // ⚡ ส่งบันทึกส่งคืนรถ (Check-in)
     async function submitCheckin(e) {
       e.preventDefault();
       if (!currentScannedVehicle || !currentUser) return;
@@ -658,18 +684,21 @@
       };
 
       try {
-        const sendPromise = fetch(GAS_URL, {
+        const response = await fetch(GAS_URL, {
           method: "POST",
-          mode: "no-cors",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify(payload)
         });
 
-        // ⚡ ตัดรอบรอ Redirect
-        const waitCap = new Promise(resolve => setTimeout(resolve, 1200));
-        await Promise.race([sendPromise, waitCap]);
+        const res = await response.json();
 
-        // อัปเดตสถานะรถในหน่วยความจำเครื่องทันที
+        if (!res.success) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-box-arrow-in-left me-1"></i> บันทึกส่งคืนรถ (เสร็จสิ้นภารกิจ)';
+          return Swal.fire("ไม่สามารถส่งคืนรถได้", res.error || "บันทึกข้อมูลไม่สำเร็จ", "error");
+        }
+
+        // สำเร็จ: อัปเดตข้อมูลรถในเครื่องทันที
         if (vehiclesDatabase && vehiclesDatabase.length > 0) {
           const v = vehiclesDatabase.find(item => item.carId === currentScannedVehicle.carId);
           if (v) {
@@ -822,12 +851,18 @@
       btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>กำลังบันทึกข้อมูล...';
 
       try {
-        await fetch(GAS_URL, {
+        const response = await fetch(GAS_URL, {
           method: "POST",
-          mode: "no-cors",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify(payload)
         });
+
+        const res = await response.json();
+        if (!res.success) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> ยืนยันการลงทะเบียน';
+          return Swal.fire("ขัดข้อง", res.error || "ลงทะเบียนไม่สำเร็จ", "error");
+        }
 
         localStorage.setItem("fleet_user_profile", JSON.stringify(profileCache));
 
