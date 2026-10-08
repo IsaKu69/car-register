@@ -183,6 +183,7 @@
         <div class="mb-3">
           <label class="form-label fw-bold text-success small">เลขไมล์สิ้นสุดตอนนำรถกลับ <span class="text-danger">*</span></label>
           <input type="number" step="any" class="form-control border-success" id="endMileageInput" required placeholder="ระบุเลขไมล์หน้าปัดจริง" oninput="calculateTripDistance()">
+          <small class="text-danger d-none" id="mileageErrorText" style="font-size: 0.75rem;">* เลขไมล์สิ้นสุดต้องไม่น้อยกว่าเลขไมล์เริ่มต้น</small>
         </div>
 
         <!-- กล่องคำนวณระยะทางรวม -->
@@ -224,11 +225,10 @@
     let currentScannedVehicle = null;
     let currentActiveLog = null;
 
-    // ฐานข้อมูลรถในหน่วยความจำเครื่อง
     let vehiclesDatabase = [];
     let isVehiclesReady = false;
 
-    // ดึงแคชเดิมของรถจากเครื่องทันทีตั้งแต่วินาทีที่ 0
+    // โหลดแคชเดิมของรถทันที
     const cachedVehicles = localStorage.getItem("fleet_vehicles_cache");
     if (cachedVehicles) {
       try {
@@ -239,9 +239,6 @@
       }
     }
 
-    /**
-     * ดึงข้อมูลผ่าน fetchGAS (GET แบบมาตรฐาน)
-     */
     async function fetchGAS(action, params = {}) {
       const url = new URL(GAS_URL);
       url.searchParams.set("action", action);
@@ -265,9 +262,6 @@
       return await response.json();
     }
 
-    /**
-     * แอบดึงข้อมูลรถล่าสุดมาอัปเดตลงเครื่องเงียบๆ เบื้องหลัง
-     */
     async function preloadVehiclesBackground() {
       try {
         const res = await fetchGAS("getAllVehicles");
@@ -275,16 +269,12 @@
           vehiclesDatabase = res.vehicles;
           isVehiclesReady = true;
           localStorage.setItem("fleet_vehicles_cache", JSON.stringify(res.vehicles));
-          console.log("อัปเดตข้อมูลรถในเครื่องสำเร็จ:", res.vehicles.length, "คัน");
         }
       } catch (err) {
         console.warn("แอบโหลดข้อมูลรถไม่สำเร็จ:", err);
       }
     }
 
-    /**
-     * ⚡ ฟังก์ชันตรวจนับรถที่ผู้ใช้คนนี้กำลังถือครองอยู่จริงในแคช
-     */
     function getMyHoldingCars() {
       if (!currentUser || !currentUser.lineUid || currentUser.lineUid === "PC-DESKTOP") return [];
       if (!vehiclesDatabase || vehiclesDatabase.length === 0) return [];
@@ -299,7 +289,6 @@
     }
 
     window.onload = async () => {
-      // ดึงโปรไฟล์เดิมในเครื่องขึ้นมาแสดงทันที
       const cachedUser = localStorage.getItem("fleet_user_profile");
       if (cachedUser) {
         try {
@@ -313,7 +302,6 @@
         }
       }
 
-      // เริ่มต้น LINE LIFF และตรวจสอบสิทธิ์/โควตาล่าสุด
       try {
         await liff.init({ liffId: LIFF_ID });
 
@@ -323,23 +311,23 @@
           document.getElementById("lineName").textContent = profile.displayName;
           if (profile.pictureUrl) document.getElementById("userAvatar").src = profile.pictureUrl;
 
-          // ⚡ ถ้าไม่มีแคช หรือ UID ไม่ตรง หรือยังไม่มีฟิลด์ quota ในเครื่อง ให้อัปเดตใหม่ทันที
-          if (!currentUser || currentUser.lineUid !== profile.userId || currentUser.quota === undefined) {
-            const res = await fetchGAS("checkUser", { lineUid: profile.userId });
-            document.getElementById("loading").style.display = "none";
+          // ตรวจสอบข้อมูลสิทธิ์/โควตาล่าสุดจากเซิร์ฟเวอร์เสมอ
+          const res = await fetchGAS("checkUser", { lineUid: profile.userId });
+          document.getElementById("loading").style.display = "none";
 
-            if (res.registered) {
-              currentUser = res.userData;
-              currentUser.lineUid = profile.userId;
-              localStorage.setItem("fleet_user_profile", JSON.stringify(currentUser));
+          if (res.registered) {
+            currentUser = res.userData;
+            currentUser.lineUid = profile.userId;
+            localStorage.setItem("fleet_user_profile", JSON.stringify(currentUser));
 
-              document.getElementById("portalUserName").textContent = res.userData.fullname;
-              document.getElementById("scanPortalCard").classList.remove("d-none");
-              preloadVehiclesBackground();
-            } else {
-              document.getElementById("mainCard").classList.remove("d-none");
-              loadPreloadedRoster();
-            }
+            document.getElementById("portalUserName").textContent = res.userData.fullname;
+            document.getElementById("scanPortalCard").classList.remove("d-none");
+            document.getElementById("mainCard").classList.add("d-none");
+            preloadVehiclesBackground();
+          } else {
+            document.getElementById("scanPortalCard").classList.add("d-none");
+            document.getElementById("mainCard").classList.remove("d-none");
+            loadPreloadedRoster();
           }
         } else {
           // โหมดเบราว์เซอร์ PC นอก LINE
@@ -365,7 +353,6 @@
       }
     };
 
-    // ส่วนสแกนและค้นหารถ
     async function triggerScan() {
       if (liff.scanCodeV2) {
         try {
@@ -385,12 +372,10 @@
       lookupCar(val);
     }
 
-    // ค้นหารถความเร็วสูง (Instant Lookup จากหน่วยความจำเครื่อง)
     async function lookupCar(carKey) {
       let rawTarget = String(carKey || "").trim();
       if (!rawTarget) return Swal.fire("แจ้งเตือน", "กรุณาระบุเลขทะเบียนหรือรหัสรถ", "warning");
 
-      // ถอดค่ารหัสรถจาก URL กรณี QR Code สร้างมาจากลิงก์
       try {
         if (rawTarget.startsWith("http://") || rawTarget.startsWith("https://")) {
           const urlObj = new URL(rawTarget);
@@ -404,7 +389,6 @@
       const cleanTarget = rawTarget.toLowerCase();
       const numTarget = cleanTarget.replace(/[^0-9]/g, "");
 
-      // ค้นหาจากหน่วยความจำเครื่องทันที
       if (isVehiclesReady && vehiclesDatabase.length > 0) {
         const matched = vehiclesDatabase.find(v => {
           const cId = (v.carId || "").toLowerCase();
@@ -428,7 +412,6 @@
         }
       }
 
-      // หากไม่พบในเครื่อง จึงยิงถามเซิร์ฟเวอร์สด
       Swal.fire({
         title: 'กำลังค้นหาข้อมูลรถ...',
         allowOutsideClick: false,
@@ -466,7 +449,7 @@
 
       badge.textContent = v.status || "พร้อมใช้งาน";
 
-      // 1. รถกำลังใช้งาน -> ฟอร์ม Check-in (ส่งคืนรถ)
+      // 1. รถกำลังใช้งาน -> Check-in
       if (v.status === "กำลังใช้งาน") {
         badge.className = "badge bg-warning text-dark info-badge";
         checkoutForm.classList.add("d-none");
@@ -482,10 +465,10 @@
         endInput.value = "";
         endInput.min = startMile;
         document.getElementById("tripDistanceBox").classList.add("d-none");
+        document.getElementById("mileageErrorText").classList.add("d-none");
         document.getElementById("issueInput").value = "";
         document.getElementById("checkDamageFlag").checked = false;
 
-        // ตรวจสอบว่าคนเปิดเป็นคนขับคนเดิมหรือไม่
         if (currentUser && currentUser.lineUid && currentUser.lineUid === originalDriverUid) {
           authBox.classList.add("d-none");
           verifyInput.required = false;
@@ -496,7 +479,7 @@
           verifyInput.value = "";
         }
       } 
-      // 2. รถพร้อมใช้งาน -> ฟอร์ม Check-out (นำรถออก)
+      // 2. รถพร้อมใช้งาน -> Check-out
       else if (v.status === "พร้อมใช้งาน") {
         badge.className = "badge bg-success info-badge";
         checkinForm.classList.add("d-none");
@@ -513,7 +496,6 @@
         const myHolding = getMyHoldingCars();
         const maxQuota = Number(currentUser?.quota) || 1;
 
-        // ⚡ ตรวจจับสิทธิ์ quota ทันทีตั้งแต่ตอนสแกน
         if (currentUser && currentUser.lineUid !== "PC-DESKTOP" && myHolding.length >= maxQuota) {
           btnSubmit.disabled = true;
           btnSubmit.className = "btn btn-secondary py-2 fw-bold";
@@ -550,12 +532,18 @@
       const startVal = currentActiveLog ? Number(currentActiveLog.startMileage) : Number(currentScannedVehicle.currentMileage || 0);
       const distBox = document.getElementById("tripDistanceBox");
       const distVal = document.getElementById("tripDistanceVal");
+      const errText = document.getElementById("mileageErrorText");
 
-      if (endVal && endVal >= startVal) {
+      if (endVal > 0 && endVal < startVal) {
+        errText.classList.remove("d-none");
+        distBox.classList.add("d-none");
+      } else if (endVal >= startVal) {
+        errText.classList.add("d-none");
         const total = Math.round((endVal - startVal) * 100) / 100;
         distVal.textContent = total.toLocaleString();
         distBox.classList.remove("d-none");
       } else {
+        errText.classList.add("d-none");
         distBox.classList.add("d-none");
       }
     }
@@ -568,7 +556,6 @@
       document.getElementById("scanActionBox").classList.remove("d-none");
     }
 
-    // ⚡ ส่งบันทึกเริ่มงาน (Check-out) พร้อมดักเตือน Error จริงจาก Apps Script
     async function submitCheckout(e) {
       e.preventDefault();
       if (!currentScannedVehicle || !currentUser) return;
@@ -615,7 +602,6 @@
 
         const res = await response.json();
 
-        // แจ้งเตือนข้อผิดพลาดจริงหากเซิร์ฟเวอร์ปฏิเสธ
         if (!res.success) {
           btn.disabled = false;
           btn.innerHTML = '<i class="bi bi-box-arrow-right me-1"></i> บันทึกเริ่มงาน (นำรถออก)';
@@ -629,6 +615,14 @@
             v.status = "กำลังใช้งาน";
             v.currentMileage = startMileage;
             v.driverUid = currentUser.lineUid;
+            v.activeLog = {
+              logId: res.logId,
+              driverName: currentUser.fullname,
+              driverUid: currentUser.lineUid,
+              purpose: purpose,
+              startTime: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+              startMileage: startMileage
+            };
             localStorage.setItem("fleet_vehicles_cache", JSON.stringify(vehiclesDatabase));
           }
         }
@@ -651,7 +645,6 @@
       }
     }
 
-    // ⚡ ส่งบันทึกส่งคืนรถ (Check-in)
     async function submitCheckin(e) {
       e.preventDefault();
       if (!currentScannedVehicle || !currentUser) return;
@@ -705,6 +698,7 @@
             v.status = isDamaged ? "ส่งซ่อม/ชำรุด" : "พร้อมใช้งาน";
             v.currentMileage = endMileage;
             v.driverUid = "";
+            v.activeLog = null;
             localStorage.setItem("fleet_vehicles_cache", JSON.stringify(vehiclesDatabase));
           }
         }
@@ -727,7 +721,6 @@
       }
     }
 
-    // ฟังก์ชันจัดการรายชื่อเดิม
     async function loadPreloadedRoster() {
       try {
         const data = await fetchGAS("getRoster");
