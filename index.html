@@ -21,7 +21,7 @@
     .mileage-box { background: #eef4ff; border: 1.5px dashed #2a5298; border-radius: 12px; padding: 12px; text-align: center; }
     .distance-preview-box { background: #d1e7dd; border: 1.5px dashed #198754; border-radius: 12px; padding: 10px; text-align: center; margin-top: 10px; }
     .info-badge { font-size: 0.85rem; padding: 4px 12px; border-radius: 20px; }
-    #loading { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; width: 100%; position: absolute; top: 0; left: 0; background: #f0f2f5; z-index: 1000; padding: 20px; }
+    #loading { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; width: 100%; position: fixed; top: 0; left: 0; background: #f0f2f5; z-index: 9999; padding: 20px; }
   </style>
 </head>
 <body>
@@ -264,7 +264,6 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script>
-    // 👇 อย่าลืมเปลี่ยน LIFF_ID และ GAS_URL เป็นลิงก์ของคุณให้ถูกต้อง!
     const LIFF_ID = "2011882870-Bs61VIj2";
     const GAS_URL = "https://script.google.com/macros/s/AKfycby6sJT9_1ptaoLBTds03SDKJ8ZrHmChHCcKiLC0aehWAo2qqkl4ZEtUly0G385acAHv/exec";
 
@@ -276,7 +275,7 @@
     let vehiclesDatabase = [];
     let isVehiclesReady = false;
 
-    // ⚡ ฟังก์ชันกลางสำหรับยิงคำขอ POST ไปยัง GAS ช่วยแก้ปัญหา Redirect 302
+    // ⚡ ฟังก์ชันกลางส่ง POST ป้องกัน 302 Redirect Bug
     async function postGAS(payload) {
       const response = await fetch(GAS_URL, {
         method: "POST",
@@ -356,21 +355,30 @@
     }
 
     window.onload = async () => {
-      const cachedUser = localStorage.getItem("fleet_user_profile");
-      if (cachedUser) {
-        try {
-          currentUser = JSON.parse(cachedUser);
-          document.getElementById("portalUserName").textContent = currentUser.fullname;
-          document.getElementById("loading").style.display = "none";
-          document.getElementById("scanPortalCard").classList.remove("d-none");
-          preloadVehiclesBackground();
-        } catch (e) {
-          localStorage.removeItem("fleet_user_profile");
-        }
-      }
-
       try {
         await liff.init({ liffId: LIFF_ID });
+
+        // ⚡ ตรวจจับหน้าจออนุมัติสำหรับผู้บริหารผ่านลิงก์ ?reqId=REQ-xxx
+        const urlParams = new URLSearchParams(window.location.search);
+        const reqIdParam = urlParams.get('reqId');
+        if (reqIdParam) {
+          document.getElementById("loadingText").textContent = "กำลังโหลดข้อมูลคำขออนุมัติ...";
+          await loadApprovalPage(reqIdParam);
+          return;
+        }
+
+        const cachedUser = localStorage.getItem("fleet_user_profile");
+        if (cachedUser) {
+          try {
+            currentUser = JSON.parse(cachedUser);
+            document.getElementById("portalUserName").textContent = currentUser.fullname;
+            document.getElementById("loading").style.display = "none";
+            document.getElementById("scanPortalCard").classList.remove("d-none");
+            preloadVehiclesBackground();
+          } catch (e) {
+            localStorage.removeItem("fleet_user_profile");
+          }
+        }
 
         if (liff.isInClient() || liff.isLoggedIn()) {
           const profile = await liff.getProfile();
@@ -411,12 +419,93 @@
         }
 
       } catch (err) {
-        if (!cachedUser) {
-          document.getElementById("loading").style.display = "none";
-          Swal.fire("ข้อผิดพลาด", "ไม่สามารถเริ่มต้นระบบได้: " + err.message, "error");
-        }
+        document.getElementById("loading").style.display = "none";
+        Swal.fire("ข้อผิดพลาด", "เริ่มต้นระบบไม่สำเร็จ: " + err.message, "error");
       }
     };
+
+    // =========================================================
+    // ⚡ หน้าพิจารณาอนุมัติสำหรับผู้บริหาร (Approval Dashboard)
+    // =========================================================
+    async function loadApprovalPage(reqId) {
+      try {
+        const res = await fetchGAS("getRequestDetail", { reqId: reqId });
+        document.getElementById("loading").style.display = "none";
+
+        if (res.success && res.request) {
+          const r = res.request;
+          document.body.innerHTML = `
+            <div class="card card-custom" style="max-width:480px; width:100%; margin:auto;">
+              <div class="header-bar text-white p-3 text-center">
+                <h5 class="fw-bold mb-0"><i class="bi bi-ui-checks me-2"></i>พิจารณาอนุมัติใช้รถ</h5>
+              </div>
+              <div class="card-body p-4">
+                <div class="alert alert-info small fw-bold text-center mb-3">สถานะปัจจุบัน: ${r.status}</div>
+                <ul class="list-group list-group-flush mb-4 small">
+                  <li class="list-group-item d-flex justify-content-between"><span class="text-muted">รหัสอ้างอิง:</span> <b>${r.reqId}</b></li>
+                  <li class="list-group-item d-flex justify-content-between"><span class="text-muted">ทะเบียนรถ:</span> <b class="text-primary fs-6">${r.plateNumber}</b></li>
+                  <li class="list-group-item d-flex justify-content-between"><span class="text-muted">ผู้ขอใช้งาน:</span> <b>${r.driverName}</b></li>
+                  <li class="list-group-item d-flex justify-content-between"><span class="text-muted">วันที่ใช้งาน:</span> <b>${r.startDate} ถึง ${r.endDate}</b></li>
+                  <li class="list-group-item">
+                    <div class="text-muted mb-1">วัตถุประสงค์ / ภารกิจ:</div>
+                    <div class="bg-light p-2 border rounded">${r.purpose}</div>
+                  </li>
+                </ul>
+                <div class="row g-2">
+                  <div class="col-6">
+                    <button class="btn btn-danger w-100 py-2 fw-bold" onclick="submitApproval('${r.reqId}', 'ไม่อนุมัติ')">
+                      <i class="bi bi-x-circle me-1"></i> ไม่อนุมัติ
+                    </button>
+                  </div>
+                  <div class="col-6">
+                    <button class="btn btn-success w-100 py-2 fw-bold" onclick="submitApproval('${r.reqId}', 'อนุมัติ')">
+                      <i class="bi bi-check-circle me-1"></i> อนุมัติ
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+        } else {
+          Swal.fire("ข้อผิดพลาด", res.error || "ไม่พบข้อมูลคำขอนี้", "error");
+        }
+      } catch (err) {
+        Swal.fire("ขัดข้อง", "ไม่สามารถดึงข้อมูลได้: " + err.message, "error");
+      }
+    }
+
+    async function submitApproval(reqId, decision) {
+      Swal.fire({
+        title: decision === "อนุมัติ" ? "ยืนยันการอนุมัติ?" : "ยืนยันไม่อนุมัติคำขอ?",
+        showCancelButton: true,
+        confirmButtonText: "ยืนยัน",
+        cancelButtonText: "ยกเลิก"
+      }).then(async (result) => {
+        if (result.isConfirmed) {
+          Swal.fire({ title: 'กำลังประมวลผล...', didOpen: () => Swal.showLoading() });
+          try {
+            const res = await postGAS({
+              action: "approveRequest",
+              reqId: reqId,
+              decision: decision
+            });
+
+            if (res.success) {
+              Swal.fire("สำเร็จ!", "อัปเดตสถานะเป็น: " + res.newStatus, "success")
+                .then(() => { if (liff.isInClient()) liff.closeWindow(); else window.location.href = window.location.pathname; });
+            } else {
+              Swal.fire("ผิดพลาด", res.error, "error");
+            }
+          } catch (e) {
+            Swal.fire("ขัดข้อง", e.toString(), "error");
+          }
+        }
+      });
+    }
+
+    // =========================================================
+    // 📷 การสแกน ค้นหา และจัดการรถ
+    // =========================================================
 
     async function triggerScan() {
       if (liff.scanCodeV2) {
@@ -799,7 +888,6 @@
 
       if (vehiclesDatabase && vehiclesDatabase.length > 0) {
         vehiclesDatabase.forEach(v => {
-          // ⚡ กรองช่องว่างเพื่อไม่ให้มีตัวเลือกเปล่าๆ ในฟอร์ม
           if (!v.plateNumber || v.plateNumber.trim() === "") return;
 
           let opt = document.createElement("option");
@@ -863,7 +951,7 @@
           Swal.fire({
             icon: 'success',
             title: 'ยื่นคำขออนุมัติสำเร็จ!',
-            html: `รหัสคำขอ: <b>${res.reqId || "REQ-OK"}</b><br>ทะเบียน: <b>${selectedCar.plateNumber}</b><br>สถานะ: <span class="badge bg-success">${res.status || "อนุมัติแล้ว"}</span>`,
+            html: `รหัสคำขอ: <b>${res.reqId}</b><br>ทะเบียน: <b>${selectedCar.plateNumber}</b><br>สถานะ: <span class="badge bg-warning text-dark">${res.status}</span><br><small class="text-muted mt-2 d-block">* ระบบได้ส่งข้อความแจ้งเตือนหาหัวหน้าฝ่ายแล้ว</small>`,
             confirmButtonText: 'ตกลง'
           });
           document.getElementById("onlineRequestForm").reset();
@@ -889,7 +977,6 @@
           return;
         }
         rosterList.forEach((item, idx) => {
-          // กรองข้อมูลว่าง
           if (!item.fullname || item.fullname.trim() === "") return;
           let opt = document.createElement("option");
           opt.value = idx;
