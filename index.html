@@ -31,7 +31,7 @@
     <h5 class="mt-3 fw-bold text-primary" id="loadingText">กำลังตรวจสอบข้อมูล LINE...</h5>
   </div>
 
-  <!-- หน้าลงทะเบียน (สำหรับผู้ใช้ใหม่) -->
+  <!-- หน้าลงทะเบียน -->
   <div class="card card-custom d-none" id="mainCard">
     <div class="header-bar">
       <h5 class="fw-bold mb-1"><i class="bi bi-person-badge me-2"></i>ลงทะเบียนเข้าใช้งาน</h5>
@@ -91,14 +91,14 @@
     </div>
   </div>
 
-  <!-- หน้าหลักสำหรับผู้ที่ลงทะเบียนแล้ว -->
+  <!-- หน้าหลักผู้ใช้งาน -->
   <div class="card card-custom d-none" id="scanPortalCard">
     <div class="header-bar">
       <h5 class="fw-bold mb-1"><i class="bi bi-car-front-fill me-2"></i>ระบบใช้รถส่วนกลาง</h5>
       <small class="opacity-75">ผู้ใช้งาน: <span id="portalUserName" class="fw-bold text-warning">-</span></small>
     </div>
 
-    <!-- ส่วนที่ 1: สแกน ค้นหา หรือขออนุมัติรถ -->
+    <!-- สแกน หรือขออนุมัติรถ -->
     <div class="card-body p-4 text-center" id="scanActionBox">
       <button class="btn btn-primary btn-scan-circle mb-3" onclick="triggerScan()">
         <i class="bi bi-qr-code-scan"></i>
@@ -114,7 +114,6 @@
         </div>
       </div>
 
-      <!-- ปุ่มยื่นแบบขออนุมัติออนไลน์ -->
       <div class="mt-3">
         <button type="button" class="btn btn-outline-primary w-100 py-2 rounded-3 fw-bold" onclick="openRequestModal()">
           <i class="bi bi-file-earmark-plus me-1"></i> ยื่นแบบขออนุมัติใช้รถออนไลน์
@@ -122,7 +121,7 @@
       </div>
     </div>
 
-    <!-- ส่วนที่ 2: แสดงข้อมูลรถและการจัดการ (Check-out หรือ Check-in) -->
+    <!-- ข้อมูลรถและจัดการ (Check-out/Check-in) -->
     <div class="card-body p-4 pt-3 d-none" id="vehicleResultBox">
       <div class="text-center mb-3">
         <span id="carStatusBadge" class="badge bg-success info-badge">พร้อมใช้งาน</span>
@@ -141,24 +140,19 @@
         </div>
       </div>
 
-      <!-- ================= 2.1 ฟอร์ม Check-out (นำรถออก) ================= -->
       <form id="checkoutForm" onsubmit="submitCheckout(event)" class="text-start d-none">
         <div class="mileage-box mb-3">
           <small class="text-primary fw-bold d-block">เลขไมล์ล่าสุดก่อนนำรถออก</small>
           <span class="fs-4 fw-bold text-dark" id="resMileageOut">0</span> <small class="text-muted">กม./ชม.</small>
         </div>
-
         <div class="mb-3">
           <label class="form-label fw-bold text-secondary small">เลขไมล์เริ่มต้น <span class="text-danger">*</span></label>
           <input type="number" step="any" class="form-control border-primary" id="startMileageInput" required placeholder="ระบุเลขไมล์หน้าปัดจริง">
-          <small class="text-muted" style="font-size: 0.75rem;">* ต้องเท่ากับหรือมากกว่าเลขไมล์ล่าสุด</small>
         </div>
-
         <div class="mb-3">
           <label class="form-label fw-bold text-secondary small">ภารกิจ / สายทางที่ไปปฏิบัติงาน <span class="text-danger">*</span></label>
           <input type="text" class="form-control" id="purposeInput" required placeholder="เช่น ซ่อมบำรุงสายทาง ต.สทิงพระ, ตรวจงาน">
         </div>
-
         <div class="d-grid gap-2 pt-2">
           <button type="submit" class="btn btn-primary py-2 fw-bold" id="btnSubmitCheckout">
             <i class="bi bi-box-arrow-right me-1"></i> บันทึกเริ่มงาน (นำรถออก)
@@ -169,46 +163,32 @@
         </div>
       </form>
 
-      <!-- ================= 2.2 ฟอร์ม Check-in (ส่งคืนรถ / นำรถกลับ) ================= -->
       <form id="checkinForm" onsubmit="submitCheckin(event)" class="text-start d-none">
         <div class="alert alert-warning py-2 px-3 small mb-3">
           <i class="bi bi-info-circle-fill me-1"></i> รถคันนี้อยู่ระหว่างใช้งาน โดยคุณ <b id="activeDriverName">-</b><br>
           <span class="text-muted">เริ่มงานเมื่อ: <span id="activeStartTime">-</span> | ไมล์เริ่ม: <b id="activeStartMile">0</b></span>
         </div>
-
-        <!-- กล่องกรอกรหัสยืนยันตัวตน (กรณีไม่ใช่คนขับเดิม) -->
         <div class="card border-warning bg-warning bg-opacity-10 p-3 mb-3 d-none" id="authBox">
-          <label class="form-label fw-bold text-dark small mb-1">
-            <i class="bi bi-shield-lock-fill text-warning me-1"></i> ยืนยันสิทธิ์การส่งคืนรถแทน <span class="text-danger">*</span>
-          </label>
-          <small class="text-muted d-block mb-2" style="font-size: 0.78rem;">
-            เนื่องจากคุณไม่ได้เป็นผู้เบิก กรุณากรอก <b>รหัสประจำตัว</b> หรือ <b>เบอร์โทรศัพท์ 4 ตัวท้าย</b> ของคนขับเพื่อยืนยัน
-          </small>
+          <label class="form-label fw-bold text-dark small mb-1">ยืนยันสิทธิ์การส่งคืนรถแทน <span class="text-danger">*</span></label>
           <input type="text" class="form-control border-warning" id="verifyKeyInput" placeholder="ระบุ ID หรือเบอร์ 4 ตัวท้าย">
         </div>
-
         <div class="mb-3">
           <label class="form-label fw-bold text-success small">เลขไมล์สิ้นสุดตอนนำรถกลับ <span class="text-danger">*</span></label>
           <input type="number" step="any" class="form-control border-success" id="endMileageInput" required placeholder="ระบุเลขไมล์หน้าปัดจริง" oninput="calculateTripDistance()">
           <small class="text-danger d-none" id="mileageErrorText" style="font-size: 0.75rem;">* เลขไมล์สิ้นสุดต้องไม่น้อยกว่าเลขไมล์เริ่มต้น</small>
         </div>
-
-        <!-- กล่องคำนวณระยะทางรวม -->
         <div class="distance-preview-box mb-3 d-none" id="tripDistanceBox">
           <small class="text-success fw-bold d-block">ระยะทางรวมที่ใช้งานในภารกิจนี้</small>
           <span class="fs-4 fw-bold text-success" id="tripDistanceVal">0</span> <small class="text-muted">กม./ชม.</small>
         </div>
-
         <div class="mb-3">
           <label class="form-label fw-bold text-secondary small">อาการผิดปกติ / ปัญหาที่พบ (ถ้ามี)</label>
-          <textarea class="form-control" id="issueInput" rows="2" placeholder="เช่น ยางหน้าซ้ายรั่วซึม, น้ำมันเครื่องพร่อง (เว้นว่างได้ถ้าปกติ)"></textarea>
+          <textarea class="form-control" id="issueInput" rows="2" placeholder="เช่น ยางหน้าซ้ายรั่วซึม (เว้นว่างได้)"></textarea>
         </div>
-
         <div class="form-check form-switch mb-3">
           <input class="form-check-input" type="checkbox" id="checkDamageFlag">
-          <label class="form-check-label small fw-bold text-danger" for="checkDamageFlag">แจ้งส่งซ่อม / ชำรุด (รถไม่พร้อมใช้งานต่อ)</label>
+          <label class="form-check-label small fw-bold text-danger" for="checkDamageFlag">แจ้งส่งซ่อม / ชำรุด</label>
         </div>
-
         <div class="d-grid gap-2 pt-2">
           <button type="submit" class="btn btn-success py-2 fw-bold" id="btnSubmitCheckin">
             <i class="bi bi-box-arrow-in-left me-1"></i> บันทึกส่งคืนรถ (เสร็จสิ้นภารกิจ)
@@ -221,7 +201,7 @@
     </div>
   </div>
 
-  <!-- Modal แบบขออนุมัติใช้รถออนไลน์ -->
+  <!-- Modal แบบขออนุมัติใช้รถ -->
   <div class="modal fade" id="requestVehicleModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content" style="border-radius: 20px;">
@@ -249,7 +229,7 @@
             </div>
             <div class="mb-3">
               <label class="form-label fw-bold small text-secondary">วัตถุประสงค์ / ภารกิจ / สถานที่ไป <span class="text-danger">*</span></label>
-              <textarea class="form-control" id="reqPurpose" rows="3" required placeholder="ระบุรายละเอียดภารกิจ เช่น ซ่อมบำรุงผิวจราจร อ.สิงหนคร..."></textarea>
+              <textarea class="form-control" id="reqPurpose" rows="3" required placeholder="ระบุรายละเอียดภารกิจ"></textarea>
             </div>
             <button type="submit" class="btn btn-primary w-100 py-2 fw-bold" id="btnSubmitReq">
               <i class="bi bi-send-fill me-1"></i> ส่งแบบขออนุมัติ
@@ -271,11 +251,10 @@
     let currentUser = null;
     let currentScannedVehicle = null;
     let currentActiveLog = null;
-
     let vehiclesDatabase = [];
     let isVehiclesReady = false;
 
-    // ⚡ ฟังก์ชันกลางส่ง POST ป้องกัน 302 Redirect Bug
+    // ⚡ ฟังก์ชันกลางส่ง POST (ทะลุ 404 Redirect อย่างเด็ดขาด)
     async function postGAS(payload) {
       const response = await fetch(GAS_URL, {
         method: "POST",
@@ -283,49 +262,31 @@
         body: JSON.stringify(payload),
         redirect: "follow"
       });
-
       const text = await response.text();
       try {
         return JSON.parse(text);
       } catch (e) {
-        if (response.ok) {
-          return { success: true };
-        }
+        if (response.ok) return { success: true };
         throw new Error("รูปแบบข้อมูลตอบกลับไม่ถูกต้อง: " + text.slice(0, 80));
       }
     }
 
-    const cachedVehicles = localStorage.getItem("fleet_vehicles_cache");
-    if (cachedVehicles) {
-      try {
-        vehiclesDatabase = JSON.parse(cachedVehicles);
-        isVehiclesReady = true;
-      } catch (e) {
-        localStorage.removeItem("fleet_vehicles_cache");
-      }
-    }
-
+    // ⚡ ฟังก์ชัน GET เดิม (ใช้สำหรับดึงข้อมูลรถเบื้องหลังเท่านั้น)
     async function fetchGAS(action, params = {}) {
       const url = new URL(GAS_URL);
       url.searchParams.set("action", action);
       url.searchParams.set("_t", Date.now());
-
       for (const [key, value] of Object.entries(params)) {
-        if (value !== undefined && value !== null) {
-          url.searchParams.set(key, value);
-        }
+        if (value !== undefined && value !== null) url.searchParams.set(key, value);
       }
-
-      const response = await fetch(url.toString(), {
-        method: "GET",
-        redirect: "follow"
-      });
-
-      if (!response.ok) {
-        throw new Error(`เซิร์ฟเวอร์ตอบกลับผิดพลาด (HTTP ${response.status})`);
-      }
-
+      const response = await fetch(url.toString(), { method: "GET", redirect: "follow" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return await response.json();
+    }
+
+    const cachedVehicles = localStorage.getItem("fleet_vehicles_cache");
+    if (cachedVehicles) {
+      try { vehiclesDatabase = JSON.parse(cachedVehicles); isVehiclesReady = true; } catch (e) { localStorage.removeItem("fleet_vehicles_cache"); }
     }
 
     async function preloadVehiclesBackground() {
@@ -336,16 +297,13 @@
           isVehiclesReady = true;
           localStorage.setItem("fleet_vehicles_cache", JSON.stringify(res.vehicles));
         }
-      } catch (err) {
-        console.warn("แอบโหลดข้อมูลรถไม่สำเร็จ:", err);
-      }
+      } catch (err) { console.warn("โหลดข้อมูลรถไม่สำเร็จ:", err); }
     }
 
     function getMyHoldingCars() {
       if (!currentUser || !currentUser.lineUid || currentUser.lineUid === "PC-DESKTOP") return [];
       if (!vehiclesDatabase || vehiclesDatabase.length === 0) return [];
       const myUid = String(currentUser.lineUid).trim().toLowerCase();
-
       return vehiclesDatabase.filter(car => {
         if (car.status !== "กำลังใช้งาน") return false;
         const cDriver = String(car.driverUid || "").trim().toLowerCase();
@@ -354,23 +312,31 @@
       });
     }
 
-    // ⚡ ปรับปรุงจุดนี้: ตรวจจับ reqId ทันทีที่เปิดหน้าเว็บ ไม่ต้องรอ LIFF
     window.onload = async () => {
       const urlParams = new URLSearchParams(window.location.search);
       const reqIdParam = urlParams.get('reqId');
 
-      // ⚡ หากมี reqId ให้สั่งยิงดึงข้อมูลคำขออนุมัติทันที
-      if (reqIdParam) {
-        document.getElementById("loadingText").textContent = "กำลังโหลดข้อมูลคำขออนุมัติ...";
-        // ให้ LIFF Init ทำงานไปเบื้องหลังโดยไม่ต้องรอ
-        liff.init({ liffId: LIFF_ID }).catch(e => console.warn("LIFF init warn:", e));
-        await loadApprovalPage(reqIdParam);
-        return;
-      }
-
       try {
+        // ⚡ รอ LIFF สั้นๆ เพื่อดึง UID ป้องกัน Error "ไม่พบ LINE User ID" ในฝั่ง Backend
         await liff.init({ liffId: LIFF_ID });
+        
+        let currentLineUid = "PC-DESKTOP";
+        if (liff.isInClient() || liff.isLoggedIn()) {
+          const profile = await liff.getProfile();
+          currentLineUid = profile.userId;
+          document.getElementById("lineUid").value = currentLineUid;
+          document.getElementById("lineName").textContent = profile.displayName;
+          if (profile.pictureUrl) document.getElementById("userAvatar").src = profile.pictureUrl;
+        }
 
+        // ⚡ 1. โหมดหน้าจออนุมัติสำหรับผู้บริหาร (มี reqId ส่งมา)
+        if (reqIdParam) {
+          document.getElementById("loadingText").textContent = "กำลังดึงข้อมูลคำขอ...";
+          await loadApprovalPage(reqIdParam, currentLineUid); // โยน UID เข้าไปด้วยเสมอ
+          return;
+        }
+
+        // ⚡ 2. โหมดหน้าแอปปกติ (หน้าหลัก / ยื่นคำขอ)
         const cachedUser = localStorage.getItem("fleet_user_profile");
         if (cachedUser) {
           try {
@@ -379,49 +345,32 @@
             document.getElementById("loading").style.display = "none";
             document.getElementById("scanPortalCard").classList.remove("d-none");
             preloadVehiclesBackground();
-          } catch (e) {
-            localStorage.removeItem("fleet_user_profile");
-          }
+          } catch (e) { localStorage.removeItem("fleet_user_profile"); }
         }
 
-        if (liff.isInClient() || liff.isLoggedIn()) {
-          const profile = await liff.getProfile();
-          document.getElementById("lineUid").value = profile.userId;
-          document.getElementById("lineName").textContent = profile.displayName;
-          if (profile.pictureUrl) document.getElementById("userAvatar").src = profile.pictureUrl;
+        const res = await fetchGAS("checkUser", { lineUid: currentLineUid });
+        document.getElementById("loading").style.display = "none";
 
-          const res = await fetchGAS("checkUser", { lineUid: profile.userId });
-          document.getElementById("loading").style.display = "none";
-
-          if (res.registered) {
-            currentUser = res.userData;
-            currentUser.lineUid = profile.userId;
-            localStorage.setItem("fleet_user_profile", JSON.stringify(currentUser));
-
-            document.getElementById("portalUserName").textContent = res.userData.fullname;
+        if (res.registered) {
+          currentUser = res.userData;
+          currentUser.lineUid = currentLineUid;
+          localStorage.setItem("fleet_user_profile", JSON.stringify(currentUser));
+          document.getElementById("portalUserName").textContent = res.userData.fullname;
+          document.getElementById("scanPortalCard").classList.remove("d-none");
+          document.getElementById("mainCard").classList.add("d-none");
+          preloadVehiclesBackground();
+        } else {
+          if (currentLineUid === "PC-DESKTOP") {
+            currentUser = { fullname: "เจ้าหน้าที่ส่วนกลาง (PC)", lineUid: "PC-DESKTOP", role: "หัวหน้างาน", quota: 99 };
+            document.getElementById("portalUserName").textContent = currentUser.fullname;
             document.getElementById("scanPortalCard").classList.remove("d-none");
-            document.getElementById("mainCard").classList.add("d-none");
             preloadVehiclesBackground();
           } else {
             document.getElementById("scanPortalCard").classList.add("d-none");
             document.getElementById("mainCard").classList.remove("d-none");
             loadPreloadedRoster();
           }
-        } else {
-          if (!currentUser) {
-            document.getElementById("loading").style.display = "none";
-            currentUser = {
-              fullname: "เจ้าหน้าที่ส่วนกลาง (PC)",
-              lineUid: "PC-DESKTOP",
-              role: "หัวหน้างาน",
-              quota: 99
-            };
-            document.getElementById("portalUserName").textContent = currentUser.fullname;
-            document.getElementById("scanPortalCard").classList.remove("d-none");
-            preloadVehiclesBackground();
-          }
         }
-
       } catch (err) {
         document.getElementById("loading").style.display = "none";
         Swal.fire("ข้อผิดพลาด", "เริ่มต้นระบบไม่สำเร็จ: " + err.message, "error");
@@ -429,11 +378,17 @@
     };
 
     // =========================================================
-    // ⚡ หน้าพิจารณาอนุมัติสำหรับผู้บริหาร (Approval Dashboard)
+    // ⚡ หน้าพิจารณาอนุมัติ (ใช้ POST เต็มรูปแบบ ทะลุ 404 บั๊ก)
     // =========================================================
-    async function loadApprovalPage(reqId) {
+    async function loadApprovalPage(reqId, uid) {
       try {
-        const res = await postGAS("getRequestDetail", { reqId: reqId });
+        // ⚡ ยิง POST request ตรง เพื่อหนีบั๊ก Cache 404 และส่ง UID ป้องกัน Error 
+        const res = await postGAS({ 
+          action: "getRequestDetail", 
+          reqId: reqId,
+          lineUid: uid 
+        });
+        
         document.getElementById("loading").style.display = "none";
 
         if (res.success && res.request) {
@@ -457,12 +412,12 @@
                 </ul>
                 <div class="row g-2">
                   <div class="col-6">
-                    <button class="btn btn-danger w-100 py-2 fw-bold" onclick="submitApproval('${r.reqId}', 'ไม่อนุมัติ')">
+                    <button class="btn btn-danger w-100 py-2 fw-bold" onclick="submitApproval('${r.reqId}', 'ไม่อนุมัติ', '${uid}')">
                       <i class="bi bi-x-circle me-1"></i> ไม่อนุมัติ
                     </button>
                   </div>
                   <div class="col-6">
-                    <button class="btn btn-success w-100 py-2 fw-bold" onclick="submitApproval('${r.reqId}', 'อนุมัติ')">
+                    <button class="btn btn-success w-100 py-2 fw-bold" onclick="submitApproval('${r.reqId}', 'อนุมัติ', '${uid}')">
                       <i class="bi bi-check-circle me-1"></i> อนุมัติ
                     </button>
                   </div>
@@ -479,7 +434,7 @@
       }
     }
 
-    async function submitApproval(reqId, decision) {
+    async function submitApproval(reqId, decision, uid) {
       Swal.fire({
         title: decision === "อนุมัติ" ? "ยืนยันการอนุมัติ?" : "ยืนยันไม่อนุมัติคำขอ?",
         showCancelButton: true,
@@ -492,17 +447,15 @@
             const res = await postGAS({
               action: "approveRequest",
               reqId: reqId,
-              decision: decision
+              decision: decision,
+              lineUid: uid // ส่งไปเสมอ ป้องกัน backend จับ Error ไม่พบ UID
             });
 
             if (res.success) {
               Swal.fire("สำเร็จ!", "อัปเดตสถานะเป็น: " + res.newStatus, "success")
                 .then(() => { 
-                  if (typeof liff !== "undefined" && liff.isInClient()) {
-                    liff.closeWindow(); 
-                  } else {
-                    window.location.href = window.location.pathname; 
-                  }
+                  if (typeof liff !== "undefined" && liff.isInClient()) liff.closeWindow(); 
+                  else window.location.href = window.location.pathname; 
                 });
             } else {
               Swal.fire("ผิดพลาด", res.error, "error");
@@ -517,15 +470,12 @@
     // =========================================================
     // 📷 การสแกน ค้นหา และจัดการรถ
     // =========================================================
-
     async function triggerScan() {
       if (liff.scanCodeV2) {
         try {
           const res = await liff.scanCodeV2();
           if (res && res.value) lookupCar(res.value.trim());
-        } catch (err) {
-          Swal.fire("แจ้งเตือน", "เปิดกล้องไม่สำเร็จหรือยกเลิก: " + err.message, "warning");
-        }
+        } catch (err) { Swal.fire("แจ้งเตือน", "เปิดกล้องไม่สำเร็จหรือยกเลิก: " + err.message, "warning"); }
       } else {
         Swal.fire("แจ้งเตือน", "อุปกรณ์ไม่รองรับการสแกนผ่าน LIFF กรุณาใช้ช่องพิมพ์ค้นหาด้านล่าง", "info");
       }
@@ -544,10 +494,7 @@
       try {
         if (rawTarget.startsWith("http://") || rawTarget.startsWith("https://")) {
           const urlObj = new URL(rawTarget);
-          rawTarget = urlObj.searchParams.get("carId") || 
-                      urlObj.searchParams.get("car") || 
-                      urlObj.searchParams.get("plate") || 
-                      rawTarget;
+          rawTarget = urlObj.searchParams.get("carId") || urlObj.searchParams.get("car") || urlObj.searchParams.get("plate") || rawTarget;
         }
       } catch (e) {}
 
@@ -559,13 +506,11 @@
           const cId = (v.carId || "").toLowerCase();
           const pNum = (v.plateNumber || "").toLowerCase();
           const pDigits = pNum.replace(/[^0-9]/g, "");
-
           if (cId === cleanTarget || pNum === cleanTarget) return true;
           if (cId && cleanTarget.includes(cId)) return true;
           if (pNum && cleanTarget.includes(pNum)) return true;
           if (cleanTarget.length >= 2 && (cId.includes(cleanTarget) || pNum.includes(cleanTarget))) return true;
           if (numTarget.length >= 2 && pDigits.includes(numTarget)) return true;
-
           return false;
         });
 
@@ -577,16 +522,10 @@
         }
       }
 
-      Swal.fire({
-        title: 'กำลังค้นหาข้อมูลรถ...',
-        allowOutsideClick: false,
-        didOpen: () => { Swal.showLoading(); }
-      });
-
+      Swal.fire({ title: 'กำลังค้นหาข้อมูลรถ...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
       try {
         const res = await fetchGAS("getVehicle", { carId: rawTarget });
         Swal.close();
-
         if (res.success && res.vehicle) {
           currentScannedVehicle = res.vehicle;
           currentActiveLog = res.activeLog || null;
@@ -614,7 +553,6 @@
 
       badge.textContent = v.status || "พร้อมใช้งาน";
 
-      // 1. รถกำลังใช้งาน -> Check-in
       if (v.status === "กำลังใช้งาน") {
         badge.className = "badge bg-warning text-dark info-badge";
         checkoutForm.classList.add("d-none");
@@ -643,9 +581,7 @@
           verifyInput.required = true;
           verifyInput.value = "";
         }
-      } 
-      // 2. รถพร้อมใช้งาน -> Check-out
-      else if (v.status === "พร้อมใช้งาน") {
+      } else if (v.status === "พร้อมใช้งาน") {
         badge.className = "badge bg-success info-badge";
         checkinForm.classList.add("d-none");
         checkoutForm.classList.remove("d-none");
@@ -665,7 +601,6 @@
           btnSubmit.disabled = true;
           btnSubmit.className = "btn btn-secondary py-2 fw-bold";
           btnSubmit.innerHTML = '<i class="bi bi-slash-circle me-1"></i> เกินสิทธิ์การเบิกรถ';
-
           const plates = myHolding.map(c => c.plateNumber).join(", ");
           Swal.fire({
             icon: 'warning',
@@ -677,9 +612,7 @@
           btnSubmit.className = "btn btn-primary py-2 fw-bold";
           btnSubmit.innerHTML = '<i class="bi bi-box-arrow-right me-1"></i> บันทึกเริ่มงาน (นำรถออก)';
         }
-      } 
-      // 3. รถส่งซ่อม
-      else {
+      } else {
         badge.className = "badge bg-danger info-badge";
         checkinForm.classList.add("d-none");
         checkoutForm.classList.remove("d-none");
@@ -730,8 +663,7 @@
       if (currentUser.lineUid && currentUser.lineUid !== "PC-DESKTOP" && myHolding.length >= maxQuota) {
         const plates = myHolding.map(c => c.plateNumber).join(", ");
         return Swal.fire({
-          icon: 'warning',
-          title: 'เกินสิทธิ์การเบิกรถ',
+          icon: 'warning', title: 'เกินสิทธิ์การเบิกรถ',
           html: `ท่านมีสิทธิ์เบิกได้สูงสุด <b>${maxQuota}</b> คัน<br>ขณะนี้มีรถค้างอยู่: <b>${plates}</b>`
         });
       }
@@ -740,9 +672,7 @@
       const currentMileage = Number(currentScannedVehicle.currentMileage || 0);
       const purpose = document.getElementById("purposeInput").value.trim();
 
-      if (startMileage < currentMileage) {
-        return Swal.fire("แจ้งเตือน", `เลขไมล์เริ่มต้น (${startMileage}) ต้องไม่น้อยกว่าเลขไมล์ล่าสุด (${currentMileage})`, "warning");
-      }
+      if (startMileage < currentMileage) return Swal.fire("แจ้งเตือน", `เลขไมล์เริ่มต้น (${startMileage}) ต้องไม่น้อยกว่าเลขไมล์ล่าสุด (${currentMileage})`, "warning");
 
       const btn = document.getElementById("btnSubmitCheckout");
       btn.disabled = true;
@@ -760,24 +690,14 @@
 
       try {
         const res = await postGAS(payload);
-
         if (!res.success) {
           btn.disabled = false;
           btn.innerHTML = '<i class="bi bi-box-arrow-right me-1"></i> บันทึกเริ่มงาน (นำรถออก)';
-          
           if (res.requireRequest) {
             return Swal.fire({
-              icon: 'error',
-              title: 'ยังไม่ได้รับอนุมัติให้ใช้รถ',
-              text: res.error,
-              showCancelButton: true,
-              confirmButtonText: '<i class="bi bi-file-earmark-plus"></i> ยื่นขออนุมัติทันที',
-              cancelButtonText: 'ปิด'
-            }).then((action) => {
-              if (action.isConfirmed) {
-                openRequestModal(currentScannedVehicle);
-              }
-            });
+              icon: 'error', title: 'ยังไม่ได้รับอนุมัติให้ใช้รถ', text: res.error,
+              showCancelButton: true, confirmButtonText: '<i class="bi bi-file-earmark-plus"></i> ยื่นขออนุมัติทันที', cancelButtonText: 'ปิด'
+            }).then((action) => { if (action.isConfirmed) openRequestModal(currentScannedVehicle); });
           }
           return Swal.fire("ไม่สามารถเบิกรถได้", res.error || "บันทึกข้อมูลไม่สำเร็จ", "error");
         }
@@ -789,12 +709,8 @@
             v.currentMileage = startMileage;
             v.driverUid = currentUser.lineUid;
             v.activeLog = {
-              logId: res.logId || "LOG-SAVED",
-              driverName: currentUser.fullname,
-              driverUid: currentUser.lineUid,
-              purpose: purpose,
-              startTime: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
-              startMileage: startMileage
+              logId: res.logId || "LOG-SAVED", driverName: currentUser.fullname, driverUid: currentUser.lineUid,
+              purpose: purpose, startTime: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }), startMileage: startMileage
             };
             localStorage.setItem("fleet_vehicles_cache", JSON.stringify(vehiclesDatabase));
           }
@@ -802,17 +718,12 @@
         preloadVehiclesBackground();
 
         Swal.fire({
-          icon: 'success',
-          title: 'บันทึกเริ่มงานสำเร็จ!',
+          icon: 'success', title: 'บันทึกเริ่มงานสำเร็จ!',
           html: `นำรถทะเบียน <b>${currentScannedVehicle.plateNumber}</b> ออกปฏิบัติงาน<br>เลขไมล์เริ่มต้น: <b>${startMileage.toLocaleString()}</b>`,
-          timer: 1800,
-          showConfirmButton: true
-        }).then(() => {
-          if (liff.isInClient()) liff.closeWindow(); else resetScanState();
-        });
+          timer: 1800, showConfirmButton: true
+        }).then(() => { if (liff.isInClient()) liff.closeWindow(); else resetScanState(); });
 
       } catch (err) {
-        console.error("submitCheckout Error:", err);
         Swal.fire("ข้อผิดพลาด", "บันทึกข้อมูลไม่สำเร็จ: " + err.message, "error");
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-box-arrow-right me-1"></i> บันทึกเริ่มงาน (นำรถออก)';
@@ -829,12 +740,9 @@
       const isDamaged = document.getElementById("checkDamageFlag").checked;
       const verifyKey = document.getElementById("verifyKeyInput").value.trim();
 
-      if (endMileage < startMileage) {
-        return Swal.fire("แจ้งเตือน", `เลขไมล์สิ้นสุด (${endMileage}) ต้องไม่น้อยกว่าเลขไมล์เริ่มต้น (${startMileage})`, "warning");
-      }
+      if (endMileage < startMileage) return Swal.fire("แจ้งเตือน", `เลขไมล์สิ้นสุด (${endMileage}) ต้องไม่น้อยกว่าเลขไมล์เริ่มต้น (${startMileage})`, "warning");
 
       const tripDistance = Math.round((endMileage - startMileage) * 100) / 100;
-
       const btn = document.getElementById("btnSubmitCheckin");
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>กำลังบันทึกส่งคืนรถ...';
@@ -843,16 +751,12 @@
         action: "checkInVehicle",
         carId: String(currentScannedVehicle.carId || "").trim(),
         plateNumber: String(currentScannedVehicle.plateNumber || "").trim(),
-        endMileage: endMileage,
-        issueReported: issues,
-        isDamaged: isDamaged,
-        currentUserUid: String(currentUser.lineUid || "").trim(),
-        verifyKey: verifyKey
+        endMileage: endMileage, issueReported: issues, isDamaged: isDamaged,
+        currentUserUid: String(currentUser.lineUid || "").trim(), verifyKey: verifyKey
       };
 
       try {
         const res = await postGAS(payload);
-
         if (!res.success) {
           btn.disabled = false;
           btn.innerHTML = '<i class="bi bi-box-arrow-in-left me-1"></i> บันทึกส่งคืนรถ (เสร็จสิ้นภารกิจ)';
@@ -864,25 +768,19 @@
           if (v) {
             v.status = isDamaged ? "ส่งซ่อม/ชำรุด" : "พร้อมใช้งาน";
             v.currentMileage = endMileage;
-            v.driverUid = "";
-            v.activeLog = null;
+            v.driverUid = ""; v.activeLog = null;
             localStorage.setItem("fleet_vehicles_cache", JSON.stringify(vehiclesDatabase));
           }
         }
         preloadVehiclesBackground();
 
         Swal.fire({
-          icon: 'success',
-          title: 'บันทึกส่งคืนรถสำเร็จ!',
+          icon: 'success', title: 'บันทึกส่งคืนรถสำเร็จ!',
           html: `ทะเบียน <b>${currentScannedVehicle.plateNumber}</b><br>ระยะทางรวมภารกิจนี้: <b class="text-success">${tripDistance.toLocaleString()}</b> กม./ชม.<br>สถานะรถ: <b>${isDamaged ? 'ส่งซ่อม/ชำรุด' : 'พร้อมใช้งาน'}</b>`,
-          timer: 1800,
-          showConfirmButton: true
-        }).then(() => {
-          if (liff.isInClient()) liff.closeWindow(); else resetScanState();
-        });
+          timer: 1800, showConfirmButton: true
+        }).then(() => { if (liff.isInClient()) liff.closeWindow(); else resetScanState(); });
 
       } catch (err) {
-        console.error("submitCheckin Error:", err);
         Swal.fire("ข้อผิดพลาด", "บันทึกข้อมูลไม่สำเร็จ: " + err.message, "error");
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-box-arrow-in-left me-1"></i> บันทึกส่งคืนรถ (เสร็จสิ้นภารกิจ)';
@@ -890,9 +788,8 @@
     }
 
     // =========================================================
-    // 📝 จัดการแบบขออนุมัติใช้รถออนไลน์
+    // 📝 แบบขออนุมัติใช้รถออนไลน์
     // =========================================================
-
     function openRequestModal(prefillVehicle = null) {
       const select = document.getElementById("reqSelectCar");
       select.innerHTML = '<option value="">-- กรุณาเลือกรถ --</option>';
@@ -900,14 +797,10 @@
       if (vehiclesDatabase && vehiclesDatabase.length > 0) {
         vehiclesDatabase.forEach(v => {
           if (!v.plateNumber || v.plateNumber.trim() === "") return;
-
           let opt = document.createElement("option");
           opt.value = JSON.stringify({ carId: v.carId, plateNumber: v.plateNumber });
           opt.textContent = `${v.plateNumber} (${v.brandModel || v.type})`;
-
-          if (prefillVehicle && (prefillVehicle.carId === v.carId || prefillVehicle.plateNumber === v.plateNumber)) {
-            opt.selected = true;
-          }
+          if (prefillVehicle && (prefillVehicle.carId === v.carId || prefillVehicle.plateNumber === v.plateNumber)) opt.selected = true;
           select.appendChild(opt);
         });
       }
@@ -915,9 +808,7 @@
       const todayStr = new Date().toISOString().split("T")[0];
       document.getElementById("reqStartDate").value = todayStr;
       document.getElementById("reqEndDate").value = todayStr;
-
-      const modal = new bootstrap.Modal(document.getElementById('requestVehicleModal'));
-      modal.show();
+      new bootstrap.Modal(document.getElementById('requestVehicleModal')).show();
     }
 
     async function submitOnlineRequest(e) {
@@ -932,36 +823,26 @@
       const endDate = document.getElementById("reqEndDate").value;
       const purpose = document.getElementById("reqPurpose").value.trim();
 
-      if (endDate < startDate) {
-        return Swal.fire("แจ้งเตือน", "วันที่สิ้นสุดต้องไม่น้อยกว่าวันที่เริ่มต้น", "warning");
-      }
+      if (endDate < startDate) return Swal.fire("แจ้งเตือน", "วันที่สิ้นสุดต้องไม่น้อยกว่าวันที่เริ่มต้น", "warning");
 
       const btn = document.getElementById("btnSubmitReq");
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>กำลังส่งคำขอ...';
 
       const payload = {
-        action: "requestVehicle",
-        carId: selectedCar.carId,
-        plateNumber: selectedCar.plateNumber,
-        driverUid: currentUser.lineUid,
-        driverName: currentUser.fullname,
-        startDate: startDate,
-        endDate: endDate,
-        purpose: purpose
+        action: "requestVehicle", carId: selectedCar.carId, plateNumber: selectedCar.plateNumber,
+        driverUid: currentUser.lineUid, driverName: currentUser.fullname, startDate: startDate, endDate: endDate, purpose: purpose
       };
 
       try {
         const res = await postGAS(payload);
-
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-send-fill me-1"></i> ส่งแบบขออนุมัติ';
 
         if (res.success) {
           bootstrap.Modal.getInstance(document.getElementById('requestVehicleModal')).hide();
           Swal.fire({
-            icon: 'success',
-            title: 'ยื่นคำขออนุมัติสำเร็จ!',
+            icon: 'success', title: 'ยื่นคำขออนุมัติสำเร็จ!',
             html: `รหัสคำขอ: <b>${res.reqId}</b><br>ทะเบียน: <b>${selectedCar.plateNumber}</b><br>สถานะ: <span class="badge bg-warning text-dark">${res.status}</span><br><small class="text-muted mt-2 d-block">* ระบบได้ส่งข้อความแจ้งเตือนหาหัวหน้าฝ่ายแล้ว</small>`,
             confirmButtonText: 'ตกลง'
           });
@@ -970,7 +851,6 @@
           Swal.fire("เกิดข้อผิดพลาด", res.error || "ไม่สามารถส่งคำขอได้", "error");
         }
       } catch (err) {
-        console.error("submitOnlineRequest Error:", err);
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-send-fill me-1"></i> ส่งแบบขออนุมัติ';
         Swal.fire("ขัดข้อง", "ส่งข้อมูลไม่สำเร็จ: " + err.message, "error");
@@ -994,9 +874,7 @@
           opt.textContent = `${item.fullname} (${item.department})`;
           select.appendChild(opt);
         });
-      } catch (err) {
-        console.error(err);
-      }
+      } catch (err) { console.error(err); }
     }
 
     function switchMode(mode) {
@@ -1017,9 +895,7 @@
         document.getElementById("prevRole").innerHTML = `<i class="bi bi-shield-lock me-1"></i>สิทธิ์: ${sel.role}`;
         if (sel.phone) document.getElementById("phone").value = sel.phone;
         preview.classList.remove("d-none");
-      } else {
-        preview.classList.add("d-none");
-      }
+      } else { preview.classList.add("d-none"); }
     }
 
     function formatPhone(input) {
@@ -1031,46 +907,24 @@
 
     async function handleSubmit(e) {
       e.preventDefault();
-
       const lineUid = document.getElementById("lineUid").value.trim();
-      if (!lineUid) {
-        return Swal.fire("แจ้งเตือน", "ไม่พบรหัส LINE UID กรุณารอระบบโหลดหรือเปิดผ่าน LINE", "warning");
-      }
+      if (!lineUid) return Swal.fire("แจ้งเตือน", "ไม่พบรหัส LINE UID กรุณารอระบบโหลดหรือเปิดผ่าน LINE", "warning");
 
       const phoneRaw = document.getElementById("phone").value.trim();
       const phoneDigits = phoneRaw.replace(/[^0-9]/g, "");
-      if (phoneDigits.length !== 10) {
-        return Swal.fire("แจ้งเตือน", "กรุณาระบุเบอร์โทรศัพท์ให้ครบ 10 หลัก", "warning");
-      }
+      if (phoneDigits.length !== 10) return Swal.fire("แจ้งเตือน", "กรุณาระบุเบอร์โทรศัพท์ให้ครบ 10 หลัก", "warning");
 
       const mode = document.getElementById("currentMode").value;
-      let payload = {
-        action: "registerUser",
-        lineUid: lineUid,
-        mode: mode,
-        phone: phoneRaw
-      };
-
-      let profileCache = {
-        lineUid: lineUid,
-        phone: phoneRaw,
-        status: "พร้อมใช้งาน",
-        quota: 1
-      };
+      let payload = { action: "registerUser", lineUid: lineUid, mode: mode, phone: phoneRaw };
+      let profileCache = { lineUid: lineUid, phone: phoneRaw, status: "พร้อมใช้งาน", quota: 1 };
 
       if (mode === "existing") {
         const selectIdx = document.getElementById("selectRoster").value;
-        if (selectIdx === "") {
-          return Swal.fire("แจ้งเตือน", "กรุณาเลือกรายชื่อของท่านจากรายการ", "warning");
-        }
+        if (selectIdx === "") return Swal.fire("แจ้งเตือน", "กรุณาเลือกรายชื่อของท่านจากรายการ", "warning");
         const selectedPerson = rosterList[selectIdx];
-        payload.rowNum = selectedPerson.rowNum;
-        payload.fullname = selectedPerson.fullname;
-
-        profileCache.userId = selectedPerson.userId || "";
-        profileCache.fullname = selectedPerson.fullname;
-        profileCache.position = selectedPerson.position || "-";
-        profileCache.department = selectedPerson.department || "-";
+        payload.rowNum = selectedPerson.rowNum; payload.fullname = selectedPerson.fullname;
+        profileCache.userId = selectedPerson.userId || ""; profileCache.fullname = selectedPerson.fullname;
+        profileCache.position = selectedPerson.position || "-"; profileCache.department = selectedPerson.department || "-";
         profileCache.role = selectedPerson.role || "ผู้ใช้รถทั่วไป";
       } else {
         const empId = document.getElementById("empId").value.trim();
@@ -1079,21 +933,12 @@
         const department = document.getElementById("department").value.trim();
         const role = document.getElementById("role").value;
 
-        if (!fullname || !position || !department) {
-          return Swal.fire("แจ้งเตือน", "กรุณากรอกข้อมูลส่วนตัวให้ครบทุกช่อง", "warning");
-        }
+        if (!fullname || !position || !department) return Swal.fire("แจ้งเตือน", "กรุณากรอกข้อมูลส่วนตัวให้ครบทุกช่อง", "warning");
 
-        payload.empId = empId;
-        payload.fullname = fullname;
-        payload.position = position;
-        payload.department = department;
-        payload.role = role;
-
-        profileCache.userId = empId || "USR-NEW";
-        profileCache.fullname = fullname;
-        profileCache.position = position;
-        profileCache.department = department;
-        profileCache.role = role;
+        payload.empId = empId; payload.fullname = fullname; payload.position = position;
+        payload.department = department; payload.role = role;
+        profileCache.userId = empId || "USR-NEW"; profileCache.fullname = fullname;
+        profileCache.position = position; profileCache.department = department; profileCache.role = role;
       }
 
       const btn = document.getElementById("btnSubmit");
@@ -1102,27 +947,15 @@
 
       try {
         const res = await postGAS(payload);
-
         if (!res.success) {
           btn.disabled = false;
           btn.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> ยืนยันการลงทะเบียน';
           return Swal.fire("ขัดข้อง", res.error || "ลงทะเบียนไม่สำเร็จ", "error");
         }
-
         localStorage.setItem("fleet_user_profile", JSON.stringify(profileCache));
-
-        Swal.fire({
-          icon: 'success',
-          title: 'ลงทะเบียนสำเร็จ!',
-          text: `ยินดีต้อนรับคุณ ${profileCache.fullname}`,
-          timer: 1800,
-          showConfirmButton: false
-        }).then(() => {
-          window.location.reload();
-        });
-
+        Swal.fire({ icon: 'success', title: 'ลงทะเบียนสำเร็จ!', text: `ยินดีต้อนรับคุณ ${profileCache.fullname}`, timer: 1800, showConfirmButton: false })
+          .then(() => { window.location.reload(); });
       } catch (err) {
-        console.error("handleSubmit Error:", err);
         Swal.fire("ขัดข้อง", "ส่งข้อมูลไม่สำเร็จ: " + err.message, "error");
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> ยืนยันการลงทะเบียน';
