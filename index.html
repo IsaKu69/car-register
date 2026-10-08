@@ -354,18 +354,22 @@
       });
     }
 
+    // ⚡ ปรับปรุงจุดนี้: ตรวจจับ reqId ทันทีที่เปิดหน้าเว็บ ไม่ต้องรอ LIFF
     window.onload = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const reqIdParam = urlParams.get('reqId');
+
+      // ⚡ หากมี reqId ให้สั่งยิงดึงข้อมูลคำขออนุมัติทันที
+      if (reqIdParam) {
+        document.getElementById("loadingText").textContent = "กำลังโหลดข้อมูลคำขออนุมัติ...";
+        // ให้ LIFF Init ทำงานไปเบื้องหลังโดยไม่ต้องรอ
+        liff.init({ liffId: LIFF_ID }).catch(e => console.warn("LIFF init warn:", e));
+        await loadApprovalPage(reqIdParam);
+        return;
+      }
+
       try {
         await liff.init({ liffId: LIFF_ID });
-
-        // ⚡ ตรวจจับหน้าจออนุมัติสำหรับผู้บริหารผ่านลิงก์ ?reqId=REQ-xxx
-        const urlParams = new URLSearchParams(window.location.search);
-        const reqIdParam = urlParams.get('reqId');
-        if (reqIdParam) {
-          document.getElementById("loadingText").textContent = "กำลังโหลดข้อมูลคำขออนุมัติ...";
-          await loadApprovalPage(reqIdParam);
-          return;
-        }
 
         const cachedUser = localStorage.getItem("fleet_user_profile");
         if (cachedUser) {
@@ -470,6 +474,7 @@
           Swal.fire("ข้อผิดพลาด", res.error || "ไม่พบข้อมูลคำขอนี้", "error");
         }
       } catch (err) {
+        document.getElementById("loading").style.display = "none";
         Swal.fire("ขัดข้อง", "ไม่สามารถดึงข้อมูลได้: " + err.message, "error");
       }
     }
@@ -482,7 +487,7 @@
         cancelButtonText: "ยกเลิก"
       }).then(async (result) => {
         if (result.isConfirmed) {
-          Swal.fire({ title: 'กำลังประมวลผล...', didOpen: () => Swal.showLoading() });
+          Swal.fire({ title: 'กำลังประมวลผล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
           try {
             const res = await postGAS({
               action: "approveRequest",
@@ -492,7 +497,13 @@
 
             if (res.success) {
               Swal.fire("สำเร็จ!", "อัปเดตสถานะเป็น: " + res.newStatus, "success")
-                .then(() => { if (liff.isInClient()) liff.closeWindow(); else window.location.href = window.location.pathname; });
+                .then(() => { 
+                  if (typeof liff !== "undefined" && liff.isInClient()) {
+                    liff.closeWindow(); 
+                  } else {
+                    window.location.href = window.location.pathname; 
+                  }
+                });
             } else {
               Swal.fire("ผิดพลาด", res.error, "error");
             }
