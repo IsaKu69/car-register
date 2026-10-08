@@ -433,7 +433,7 @@
     // =========================================================
     async function loadApprovalPage(reqId) {
       try {
-        const res = await fetchGAS("getRequestDetail", { reqId: reqId });
+        const res = await postGAS("getRequestDetail", { reqId: reqId });
         document.getElementById("loading").style.display = "none";
 
         if (res.success && res.request) {
