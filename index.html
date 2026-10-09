@@ -258,14 +258,37 @@
     let realLineUid = ""; 
     let liffReady = false;
 
-    async function postGAS(payload) {
-      const response = await fetch(GAS_URL, {
-        method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload), redirect: "follow"
-      });
-      const text = await response.text();
-      try { return JSON.parse(text); } catch (e) {
-        if (response.ok) return { success: true };
-        throw new Error("ระบบปลายทางตอบสนองผิดปกติ");
+// ⚡ ฟังก์ชันกลางส่ง POST (มีระบบ Retry 3 ครั้ง ป้องกันเน็ตมือถือสะดุด)
+    async function postGAS(payload, retries = 3) {
+      for (let i = 0; i < retries; i++) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // ตัดจบถ้าเกิน 10 วินาที
+
+          const response = await fetch(GAS_URL, {
+            method: "POST", 
+            headers: { "Content-Type": "text/plain;charset=utf-8" }, 
+            body: JSON.stringify(payload), 
+            redirect: "follow",
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          const text = await response.text();
+          try { 
+            return JSON.parse(text); 
+          } catch (e) {
+            if (response.ok) return { success: true };
+            throw new Error("รูปแบบข้อมูลจากเซิร์ฟเวอร์ไม่ถูกต้อง");
+          }
+        } catch (err) {
+          if (i === retries - 1) { // ถ้าระบบลองครบ 3 ครั้งแล้วยังพัง
+            if (err.name === 'AbortError') throw new Error("การเชื่อมต่อหมดเวลา (Timeout) กรุณาลองใหม่");
+            throw err;
+          }
+          console.warn(`เน็ตสะดุด กำลังเชื่อมต่อใหม่ครั้งที่ ${i + 1}...`);
+          await new Promise(r => setTimeout(r, 1000)); // หน่วงเวลา 1 วิก่อนลองใหม่
+        }
       }
     }
 
@@ -308,11 +331,21 @@
       return "PC-DESKTOP";
     }
 
-    window.onload = async () => {
+      window.onload = async () => {
       const urlParams = new URLSearchParams(window.location.search);
-      const reqIdParam = urlParams.get('reqId');
+      let reqIdParam = urlParams.get('reqId');
 
-      // ⚡ 1. สั่งรัน LIFF แอบไว้เบื้องหลัง (ไม่ต้องบล็อกหน้าจอ)
+      // ⚡ แก้บั๊ก LIFF ซ่อน URL (ค้นหา reqId จากตัวแปร liff.state ถ้าถูกซ่อนไว้)
+      const liffState = urlParams.get('liff.state');
+      if (!reqIdParam && liffState) {
+        const stateStr = liffState.startsWith('?') ? liffState : '?' + liffState;
+        const stateParams = new URLSearchParams(stateStr);
+        if (stateParams.get('reqId')) {
+          reqIdParam = stateParams.get('reqId');
+        }
+      }
+
+      // 1. สั่งรัน LIFF แอบไว้เบื้องหลัง (ไม่ต้องบล็อกหน้าจอ)
       liff.init({ liffId: LIFF_ID }).then(async () => {
         liffReady = true;
         if (liff.isLoggedIn() || liff.isInClient()) {
@@ -323,13 +356,12 @@
         }
       }).catch(err => { liffReady = true; realLineUid = "PC-DESKTOP"; });
 
-      // ⚡ 2. โหมดผู้บริหาร: โหลดหน้าพิจารณาปุ๊บ... ดึงข้อมูลปั๊บ ทันที! (ใช้เวลา 1 วิ)
+      // 2. โหมดผู้บริหาร: โหลดหน้าพิจารณาปุ๊บ... ดึงข้อมูลปั๊บ (เจาะทะลุ LIFF)
       if (reqIdParam) {
-        document.getElementById("loadingText").textContent = "กำลังโหลดข้อมูลคำขออนุมัติ...";
+        document.getElementById("loadingText").innerHTML = 'กำลังดึงข้อมูลคำขอ...<br><small class="text-secondary" style="font-size: 0.8rem;">(รอสักครู่ หากเน็ตช้าระบบจะเชื่อมต่อให้ใหม่)</small>';
         await loadApprovalPage(reqIdParam);
-        return; // ตัดจบ ไม่ต้องลงไปรันโค้ดส่วนอื่น
+        return; // ตัดจบ
       }
-
       // โหมดหน้าแอปปกติ (ต้องรอข้อมูลประจำตัวจาก LIFF)
       const currentLineUid = await waitForLiffAndGetUid();
       document.getElementById("lineUid").value = currentLineUid;
