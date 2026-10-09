@@ -618,11 +618,25 @@
       document.getElementById("resBrand").textContent = `${v.brandModel || "-"} (${v.type || "-"})`;
       document.getElementById("resDept").textContent = v.department || "-";
 
-      // ⚡ ตรวจสอบและแสดงช่วงวันขออนุมัติที่ยังไม่หมดอายุ
-      const bookingValidEl = document.getElementById("bookingValidText");
+      // ⚡ จัดการแท็กแสดงข้อมูลใบขออนุมัติใต้รหัสรถ
+      let bookingValidEl = document.getElementById("bookingValidText");
+      if (!bookingValidEl) {
+        const carIdEl = document.getElementById("resCarId");
+        if (carIdEl && carIdEl.parentNode) {
+          bookingValidEl = document.createElement("div");
+          bookingValidEl.id = "bookingValidText";
+          bookingValidEl.className = "text-muted small mt-1 d-none";
+          bookingValidEl.style.fontSize = "0.8rem";
+          carIdEl.parentNode.insertBefore(bookingValidEl, carIdEl.nextSibling);
+        }
+      }
+
+      // ดึงข้อมูลการอนุมัติ (รองรับทั้ง v.bookingCheck หรือ currentScannedVehicle.bookingCheck)
+      const bCheck = v.bookingCheck || (currentScannedVehicle && currentScannedVehicle.bookingCheck) || null;
+
       if (bookingValidEl) {
-        if (v.bookingCheck && v.bookingCheck.approved && v.bookingCheck.requestInfo) {
-          const req = v.bookingCheck.requestInfo;
+        if (v.status === "พร้อมใช้งาน" && bCheck && bCheck.approved && bCheck.requestInfo) {
+          const req = bCheck.requestInfo;
           bookingValidEl.innerHTML = `<i class="bi bi-calendar-check text-success me-1"></i>ใบขออนุมัติ: <b>${req.startDate}</b> ถึง <b>${req.endDate}</b>`;
           bookingValidEl.classList.remove("d-none");
         } else {
@@ -641,7 +655,8 @@
 
       if (v.status === "กำลังใช้งาน") {
         badge.className = "badge bg-warning text-dark info-badge";
-        checkoutForm.classList.add("d-none"); checkinForm.classList.remove("d-none");
+        checkoutForm.classList.add("d-none"); 
+        checkinForm.classList.remove("d-none");
 
         const startMile = activeLog ? Number(activeLog.startMileage) : Number(v.currentMileage || 0);
         const originalDriverUid = activeLog ? activeLog.driverUid : (v.driverUid || "");
@@ -650,25 +665,32 @@
         document.getElementById("activeStartMile").textContent = startMile.toLocaleString();
 
         const endInput = document.getElementById("endMileageInput");
-        endInput.value = ""; endInput.min = startMile;
+        endInput.value = ""; 
+        endInput.min = startMile;
         document.getElementById("tripDistanceBox").classList.add("d-none");
         document.getElementById("mileageErrorText").classList.add("d-none");
         document.getElementById("issueInput").value = "";
         document.getElementById("checkDamageFlag").checked = false;
 
         if (currentUser && currentUser.lineUid && currentUser.lineUid === originalDriverUid) {
-          authBox.classList.add("d-none"); verifyInput.required = false; verifyInput.value = "";
+          authBox.classList.add("d-none"); 
+          verifyInput.required = false; 
+          verifyInput.value = "";
         } else {
-          authBox.classList.remove("d-none"); verifyInput.required = true; verifyInput.value = "";
+          authBox.classList.remove("d-none"); 
+          verifyInput.required = true; 
+          verifyInput.value = "";
         }
       } else if (v.status === "พร้อมใช้งาน") {
         badge.className = "badge bg-success info-badge";
-        checkinForm.classList.add("d-none"); checkoutForm.classList.remove("d-none");
+        checkinForm.classList.add("d-none"); 
+        checkoutForm.classList.remove("d-none");
 
         const mileageVal = Number(v.currentMileage || 0);
         document.getElementById("resMileageOut").textContent = mileageVal.toLocaleString();
         const startInput = document.getElementById("startMileageInput");
-        startInput.value = mileageVal; startInput.min = mileageVal;
+        startInput.value = mileageVal; 
+        startInput.min = mileageVal;
         document.getElementById("purposeInput").value = "";
 
         const btnSubmit = document.getElementById("btnSubmitCheckout");
@@ -676,15 +698,18 @@
         const maxQuota = Number(currentUser?.quota) || 1;
 
         if (currentUser && currentUser.lineUid !== "PC-DESKTOP" && myHolding.length >= maxQuota) {
-          btnSubmit.disabled = true; btnSubmit.className = "btn btn-secondary py-2 fw-bold";
+          btnSubmit.disabled = true; 
+          btnSubmit.className = "btn btn-secondary py-2 fw-bold";
           btnSubmit.innerHTML = '<i class="bi bi-slash-circle me-1"></i> เกินสิทธิ์การเบิกรถ';
         } else {
-          btnSubmit.disabled = false; btnSubmit.className = "btn btn-primary py-2 fw-bold";
+          btnSubmit.disabled = false; 
+          btnSubmit.className = "btn btn-primary py-2 fw-bold";
           btnSubmit.innerHTML = '<i class="bi bi-box-arrow-right me-1"></i> บันทึกเริ่มงาน (นำรถออก)';
         }
       } else {
         badge.className = "badge bg-danger info-badge";
-        checkinForm.classList.add("d-none"); checkoutForm.classList.remove("d-none");
+        checkinForm.classList.add("d-none"); 
+        checkoutForm.classList.remove("d-none");
         document.getElementById("btnSubmitCheckout").disabled = true;
         document.getElementById("btnSubmitCheckout").className = "btn btn-secondary py-2 fw-bold";
         document.getElementById("btnSubmitCheckout").innerHTML = '<i class="bi bi-tools me-1"></i> รถไม่พร้อมใช้งาน (ส่งซ่อม)';
