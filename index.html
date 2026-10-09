@@ -532,7 +532,7 @@
       lookupCar(val);
     }
 
-    async function lookupCar(carKey) {
+async function lookupCar(carKey) {
       let rawTarget = String(carKey || "").trim();
       if (!rawTarget) return;
 
@@ -543,31 +543,8 @@
         }
       } catch (e) {}
 
-      const cleanTarget = rawTarget.toLowerCase();
-      const numTarget = cleanTarget.replace(/[^0-9]/g, "");
+      Swal.fire({ title: 'กำลังตรวจสอบข้อมูลรถ...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
 
-      if (isVehiclesReady && vehiclesDatabase.length > 0) {
-        const matched = vehiclesDatabase.find(v => {
-          const cId = (v.carId || "").toLowerCase();
-          const pNum = (v.plateNumber || "").toLowerCase();
-          const pDigits = pNum.replace(/[^0-9]/g, "");
-          if (cId === cleanTarget || pNum === cleanTarget) return true;
-          if (cId && cleanTarget.includes(cId)) return true;
-          if (pNum && cleanTarget.includes(pNum)) return true;
-          if (cleanTarget.length >= 2 && (cId.includes(cleanTarget) || pNum.includes(cleanTarget))) return true;
-          if (numTarget.length >= 2 && pDigits.includes(numTarget)) return true;
-          return false;
-        });
-
-        if (matched) {
-          currentScannedVehicle = matched;
-          currentActiveLog = matched.activeLog || null;
-          showScannedVehicle(matched, matched.activeLog);
-          return;
-        }
-      }
-
-      Swal.fire({ title: 'กำลังค้นหาข้อมูลรถ...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
       try {
         const res = await fetchGAS("getVehicle", { carId: rawTarget });
         Swal.close();
@@ -578,7 +555,7 @@
           // ⚡ ตรวจสอบทันทีหลังสแกน: ถ้ารถพร้อมใช้งาน แต่ยังไม่มีใบขออนุมัติ
           if (res.vehicle.status === "พร้อมใช้งาน" && res.bookingCheck && !res.bookingCheck.approved) {
             return Swal.fire({
-              icon: 'warning',
+              icon: 'error',
               title: 'ยังไม่ได้รับอนุมัติให้ใช้รถ',
               text: '🚫 ' + res.bookingCheck.message,
               showCancelButton: true,
@@ -597,7 +574,10 @@
         } else {
           Swal.fire("ไม่พบข้อมูล", res.error || "ไม่พบยานพาหนะนี้ในระบบ", "error");
         }
-      } catch (err) { Swal.close(); Swal.fire("ขัดข้อง", "ไม่สามารถดึงข้อมูลได้: " + err.message, "error"); }
+      } catch (err) { 
+        Swal.close(); 
+        Swal.fire("ขัดข้อง", "ไม่สามารถดึงข้อมูลได้: " + err.message, "error"); 
+      }
     }
 
     function showScannedVehicle(v, activeLog) {
