@@ -625,8 +625,7 @@
         if (carIdEl && carIdEl.parentNode) {
           bookingValidEl = document.createElement("div");
           bookingValidEl.id = "bookingValidText";
-          bookingValidEl.className = "text-muted small mt-1 d-none";
-          bookingValidEl.style.fontSize = "0.8rem";
+          bookingValidEl.className = "mt-2 d-none";
           carIdEl.parentNode.insertBefore(bookingValidEl, carIdEl.nextSibling);
         }
       }
@@ -637,7 +636,11 @@
       if (bookingValidEl) {
         if (v.status === "พร้อมใช้งาน" && bCheck && bCheck.approved && bCheck.requestInfo) {
           const req = bCheck.requestInfo;
-          bookingValidEl.innerHTML = `<i class="bi bi-calendar-check text-success me-1"></i>ใบขออนุมัติ: <b>${req.startDate}</b> ถึง <b>${req.endDate}</b>`;
+          bookingValidEl.innerHTML = `
+            <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1" style="font-size: 0.82rem; font-weight: normal;">
+              <i class="bi bi-calendar-check me-1"></i>ใบขออนุมัติ: <b>${req.startDate}</b> ถึง <b>${req.endDate}</b>
+            </span>
+          `;
           bookingValidEl.classList.remove("d-none");
         } else {
           bookingValidEl.innerHTML = "";
