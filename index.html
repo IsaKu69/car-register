@@ -127,6 +127,8 @@
         <span id="carStatusBadge" class="badge bg-success info-badge">พร้อมใช้งาน</span>
         <h3 class="fw-bold text-primary mt-2 mb-0" id="resPlateNumber">-</h3>
         <div class="text-secondary fw-bold small" id="resCarId">(CAR-XXX)</div>
+        <!-- ⚡ ข้อความแสดงช่วงวันขออนุมัติใต้รหัสรถ -->
+        <div id="bookingValidText" class="text-muted small mt-1 d-none" style="font-size: 0.8rem;"></div>
       </div>
 
       <div class="card bg-light border-0 p-3 mb-3 text-start">
@@ -353,7 +355,7 @@
         }
       }).catch(err => { liffReady = true; realLineUid = "PC-DESKTOP"; });
 
-      // โหมดผู้บริหาร: เปิดผ่าน Flex Message
+      // เปิดดูการอนุมัติผ่าน Flex Message
       if (reqIdParam) {
         document.getElementById("loadingText").innerHTML = 'กำลังดึงข้อมูลคำขอ...<br><small class="text-secondary" style="font-size: 0.8rem;">(รอสักครู่ หากเน็ตช้าระบบจะเชื่อมต่อให้ใหม่)</small>';
         await loadApprovalPage(reqIdParam, stepParam);
@@ -428,7 +430,6 @@
         if (res.success && res.request) {
           const r = res.request;
           
-          // 🛑 ตรวจสอบว่า Flex เดิมนี้ดำเนินการผ่านขั้นตอนนี้ไปแล้วหรือไม่
           let alreadyProcessed = false;
           if (r.status === "อนุมัติแล้ว" || r.status === "ไม่อนุมัติ") {
             alreadyProcessed = true;
@@ -583,7 +584,7 @@
           currentScannedVehicle = res.vehicle;
           currentActiveLog = res.activeLog || null;
 
-          // ⚡ ตรวจสอบทันทีหลังสแกน: ถ้ารถพร้อมใช้งาน แต่ยังไม่มีใบขออนุมัติ ให้เตือนทันที
+          // ตรวจสอบทันทีหลังสแกน: ถ้ารถพร้อมใช้งาน แต่ยังไม่มีใบขออนุมัติ ให้เตือนทันที
           if (res.vehicle.status === "พร้อมใช้งาน" && res.bookingCheck && !res.bookingCheck.approved) {
             return Swal.fire({
               icon: 'error',
@@ -616,6 +617,19 @@
       document.getElementById("resCarId").textContent = `(${v.carId || "-"})`;
       document.getElementById("resBrand").textContent = `${v.brandModel || "-"} (${v.type || "-"})`;
       document.getElementById("resDept").textContent = v.department || "-";
+
+      // ⚡ ตรวจสอบและแสดงช่วงวันขออนุมัติที่ยังไม่หมดอายุ
+      const bookingValidEl = document.getElementById("bookingValidText");
+      if (bookingValidEl) {
+        if (v.bookingCheck && v.bookingCheck.approved && v.bookingCheck.requestInfo) {
+          const req = v.bookingCheck.requestInfo;
+          bookingValidEl.innerHTML = `<i class="bi bi-calendar-check text-success me-1"></i>ใบขออนุมัติ: <b>${req.startDate}</b> ถึง <b>${req.endDate}</b>`;
+          bookingValidEl.classList.remove("d-none");
+        } else {
+          bookingValidEl.innerHTML = "";
+          bookingValidEl.classList.add("d-none");
+        }
+      }
 
       const badge = document.getElementById("carStatusBadge");
       const checkoutForm = document.getElementById("checkoutForm");
@@ -699,6 +713,13 @@
     function resetScanState() {
       currentScannedVehicle = null; currentActiveLog = null;
       document.getElementById("manualCarInput").value = "";
+      
+      const bookingValidEl = document.getElementById("bookingValidText");
+      if (bookingValidEl) {
+        bookingValidEl.innerHTML = "";
+        bookingValidEl.classList.add("d-none");
+      }
+
       document.getElementById("vehicleResultBox").classList.add("d-none");
       document.getElementById("scanActionBox").classList.remove("d-none");
     }
