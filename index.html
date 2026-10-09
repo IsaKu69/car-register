@@ -419,7 +419,6 @@
     // =========================================================
     async function loadApprovalPage(reqId) {
       try {
-        // ⚡ ยิง POST request ทะลุแคช พร้อมใส่ UID จำลองตอนโหลด เพื่อไม่ให้แอปฝั่งนู้นเตะออก
         const res = await postGAS({ 
           action: "getRequestDetail", 
           reqId: reqId,
@@ -430,6 +429,24 @@
 
         if (res.success && res.request) {
           const r = res.request;
+          
+          // 🛑 ดักจับทันที: ถ้าสถานะไม่ใช่ "รอ..." ที่ยังค้างอยู่ ให้ล็อกและเตือนทันที
+          const isFinished = (r.status === "อนุมัติแล้ว" || r.status === "ไม่อนุมัติ");
+          
+          if (isFinished) {
+            return Swal.fire({
+              icon: r.status === "อนุมัติแล้ว" ? 'success' : 'error',
+              title: 'รายการนี้ดำเนินการไปแล้ว',
+              html: `คำขอรหัส <b>${r.reqId}</b><br>มีสถานะ: <span class="badge ${r.status === 'อนุมัติแล้ว' ? 'bg-success' : 'bg-danger'}">${r.status}</span> เรียบร้อยแล้ว`,
+              confirmButtonText: 'ปิดหน้าต่าง',
+              allowOutsideClick: false
+            }).then(() => {
+              if (typeof liff !== "undefined" && liff.isInClient()) {
+                liff.closeWindow(); // ปิดหน้าต่าง LINE ทันที ไม่ให้ค้างหน้าจอไว้
+              }
+            });
+          }
+
           document.body.innerHTML = `
             <div class="card card-custom" style="max-width:480px; width:100%; margin:auto;">
               <div class="header-bar text-white p-3 text-center">
@@ -449,12 +466,12 @@
                 </ul>
                 <div class="row g-2">
                   <div class="col-6">
-                    <button class="btn btn-danger w-100 py-2 fw-bold" onclick="submitApproval('${r.reqId}', 'ไม่อนุมัติ')">
+                    <button class="btn btn-danger w-100 py-2 fw-bold" id="btnReject" onclick="submitApproval('${r.reqId}', 'ไม่อนุมัติ')">
                       <i class="bi bi-x-circle me-1"></i> ไม่อนุมัติ
                     </button>
                   </div>
                   <div class="col-6">
-                    <button class="btn btn-success w-100 py-2 fw-bold" onclick="submitApproval('${r.reqId}', 'อนุมัติ')">
+                    <button class="btn btn-success w-100 py-2 fw-bold" id="btnApprove" onclick="submitApproval('${r.reqId}', 'อนุมัติ')">
                       <i class="bi bi-check-circle me-1"></i> อนุมัติ
                     </button>
                   </div>
