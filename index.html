@@ -258,7 +258,7 @@
     let realLineUid = ""; 
     let liffReady = false;
 
-// ⚡ ฟังก์ชันกลางส่ง POST (มีระบบ Retry 3 ครั้ง ป้องกันเน็ตมือถือสะดุด)
+    // ⚡ ฟังก์ชันกลางส่ง POST (มีระบบ Retry 3 ครั้ง ป้องกันเน็ตมือถือสะดุด)
     async function postGAS(payload, retries = 3) {
       for (let i = 0; i < retries; i++) {
         try {
@@ -689,6 +689,7 @@
         const res = await postGAS(payload);
         if (!res.success) {
           btn.disabled = false; btn.innerHTML = '<i class="bi bi-box-arrow-right me-1"></i> บันทึกเริ่มงาน (นำรถออก)';
+          
           if (res.requireRequest) {
             return Swal.fire({ 
               icon: 'error', 
@@ -699,40 +700,8 @@
               cancelButtonText: 'ปิด' 
             }).then((a) => { 
               if (a.isConfirmed) {
-                // 1. เปิดหน้าต่างฟอร์ม
+                // ⚡ โยนข้อมูลรถที่สแกนไปให้ฟังก์ชันเปิดหน้าต่างจัดการต่อทีเดียวจบ
                 openRequestModal(currentScannedVehicle); 
-          
-                // ⚡ 2. สร้างระบบ "ดักรอ" จนกว่า Dropdown จะโหลดรายการรถเสร็จ
-                let checkDropdownInterval = setInterval(() => {
-                  
-                  // 📌 จุดสำคัญ: เช็กว่าช่อง Dropdown ของนายช่างชื่อ ID ว่าอะไร (สมมติว่าชื่อ 'carId')
-                  let carSelect = document.getElementById('carId'); 
-                  
-                  // ถ้าระบบโหลด Dropdown เสร็จแล้ว (มีตัวเลือกมากกว่า 1 อัน)
-                  if (carSelect && carSelect.options.length > 1) {
-                     clearInterval(checkDropdownInterval); // โหลดเสร็จแล้ว สั่งให้เลิกรอ
-                     
-                     // ดึงข้อมูลที่สแกนออกมา (รับรองทั้งแบบที่เป็น Object และเป็นข้อความธรรมดา)
-                     let targetSearch = "";
-                     if (typeof currentScannedVehicle === 'object') {
-                       targetSearch = currentScannedVehicle.plateNumber || currentScannedVehicle.carId || currentScannedVehicle.plate_number;
-                     } else {
-                       targetSearch = currentScannedVehicle;
-                     }
-          
-                     // วนลูปหาให้เจอว่ามีรายการไหนตรงกับรถที่สแกนมาบ้าง
-                     for (let i = 0; i < carSelect.options.length; i++) {
-                       let optionText = carSelect.options[i].text;
-                       let optionValue = carSelect.options[i].value;
-                       
-                       // ถ้าเจอว่าข้อความ (ทะเบียน) หรือ value (ID) ตรงกัน ให้จับล็อกทันที
-                       if (optionText.indexOf(targetSearch) !== -1 || optionValue === targetSearch) {
-                         carSelect.selectedIndex = i;
-                         break;
-                       }
-                     }
-                  }
-                }, 500); // ให้ระบบเช็กซ้ำๆ ทุกครึ่งวินาที จนกว่ารายการรถจะโผล่
               } 
             });
           }
@@ -771,15 +740,30 @@
     function openRequestModal(prefillVehicle = null) {
       const select = document.getElementById("reqSelectCar");
       select.innerHTML = '<option value="">-- กรุณาเลือกรถ --</option>';
+      
+      // ดึง ID และ ทะเบียนรถ ที่รับค่ามาเตรียมไว้เปรียบเทียบ
+      let targetCarId = prefillVehicle ? (prefillVehicle.carId || "") : "";
+      let targetPlate = prefillVehicle ? (prefillVehicle.plateNumber || "") : "";
+
       if (vehiclesDatabase && vehiclesDatabase.length > 0) {
         vehiclesDatabase.forEach(v => {
           if (!v.plateNumber || v.plateNumber.trim() === "") return;
-          let opt = document.createElement("option"); opt.value = JSON.stringify({ carId: v.carId, plateNumber: v.plateNumber }); opt.textContent = `${v.plateNumber} (${v.brandModel || v.type})`;
+          let opt = document.createElement("option"); 
+          opt.value = JSON.stringify({ carId: v.carId, plateNumber: v.plateNumber }); 
+          opt.textContent = `${v.plateNumber} (${v.brandModel || v.type})`;
+          
+          // ⚡ ไฮไลต์สำคัญ: ถ้า ID รถ หรือ ป้ายทะเบียน ตรงกับคันที่สแกนมา ให้จับล็อก (Selected) ทันที
+          if (prefillVehicle && (v.carId === targetCarId || v.plateNumber === targetPlate)) {
+            opt.selected = true;
+          }
+
           select.appendChild(opt);
         });
       }
+      
       const todayStr = new Date().toISOString().split("T")[0];
-      document.getElementById("reqStartDate").value = todayStr; document.getElementById("reqEndDate").value = todayStr;
+      document.getElementById("reqStartDate").value = todayStr; 
+      document.getElementById("reqEndDate").value = todayStr;
       new bootstrap.Modal(document.getElementById('requestVehicleModal')).show();
     }
 
@@ -868,30 +852,6 @@
         Swal.fire({ icon: 'success', title: 'ลงทะเบียนสำเร็จ!', timer: 1800, showConfirmButton: false }).then(() => { window.location.reload(); });
       } catch (err) { btn.disabled = false; btn.innerHTML = 'ยืนยันการลงทะเบียน'; Swal.fire("ขัดข้อง", "ส่งข้อมูลไม่สำเร็จ: " + err.message, "error"); }
     }
-
-    // ⚡ ฟังก์ชันสำหรับสลับไปหน้าฟอร์ม พร้อมล็อกทะเบียนรถอัตโนมัติ
-  function goToRequestFormAndLockPlate(scannedPlateNumber) {
-  // 1. ซ่อนหน้าต่างเดิม (แก้ ID ให้ตรงกับหน้าจอของนายช่าง เช่น 'scanSection' หรือ 'mainMenu')
-  // document.getElementById('scanSection').style.display = 'none'; 
-  
-  // 2. เปิดหน้ายื่นแบบฟอร์มขอใช้รถ (แก้ ID ให้ตรงกับหน้าฟอร์มของนายช่าง)
-  // document.getElementById('requestFormSection').style.display = 'block';
-
-  // 3. ⚡ ค้นหา Dropdown ทะเบียนรถ และบังคับเลือกค่าตามที่สแกน
-  // ** ให้แก้คำว่า "carSelectId" เป็น ID ของ <select> ทะเบียนรถในฟอร์มของนายช่าง **
-  var selectObj = document.getElementById('carSelectId'); 
-  
-  if (selectObj && scannedPlateNumber) {
-    for (var i = 0; i < selectObj.options.length; i++) {
-      // ตรวจสอบว่าในตัวเลือกมีคำที่ตรงกับทะเบียนรถหรือไม่
-      if (selectObj.options[i].text.indexOf(scannedPlateNumber) !== -1 || selectObj.options[i].value === scannedPlateNumber) {
-        selectObj.selectedIndex = i; // บังคับเลือกรายการนี้
-        // selectObj.disabled = true; // (ถ้าอยากล็อกไม่ให้ผู้ใช้กดเปลี่ยนรถคันอื่นได้ ให้ลบ // บรรทัดนี้ออกครับ)
-        break;
-      }
-    }
-  }
-}
   </script>
 </body>
 </html>
