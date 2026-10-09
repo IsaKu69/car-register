@@ -689,7 +689,31 @@
         const res = await postGAS(payload);
         if (!res.success) {
           btn.disabled = false; btn.innerHTML = '<i class="bi bi-box-arrow-right me-1"></i> บันทึกเริ่มงาน (นำรถออก)';
-          if (res.requireRequest) return Swal.fire({ icon: 'error', title: 'ยังไม่ได้รับอนุมัติให้ใช้รถ', text: res.error, showCancelButton: true, confirmButtonText: 'ยื่นขออนุมัติทันที', cancelButtonText: 'ปิด' }).then((a) => { if (a.isConfirmed) openRequestModal(currentScannedVehicle); });
+          if (res.requireRequest) {
+          return Swal.fire({ 
+            icon: 'error', 
+            title: 'ยังไม่ได้รับอนุมัติให้ใช้รถ', 
+            text: res.error, 
+            showCancelButton: true, 
+            confirmButtonText: 'ยื่นขออนุมัติทันที', 
+            cancelButtonText: 'ปิด' 
+          }).then((a) => { 
+            if (a.isConfirmed) {
+              // 1. เปิดหน้าต่างฟอร์มตามปกติ
+              openRequestModal(currentScannedVehicle); 
+        
+              // ⚡ 2. เพิ่มคำสั่งล็อก Dropdown ทะเบียนรถทันทีที่หน้าต่างเปิดขึ้นมา
+              setTimeout(() => {
+                // เปลี่ยน 'carId' เป็น ID ของช่อง <select> ทะเบียนรถของนายช่าง
+                let carSelect = document.getElementById('carId'); 
+                if (carSelect && currentScannedVehicle) {
+                  // สมมติว่า currentScannedVehicle เก็บค่า ID ของรถ (เช่น CAR-001) 
+                  carSelect.value = currentScannedVehicle.carId || currentScannedVehicle;
+                }
+              }, 300); // หน่วงเวลา 0.3 วินาที รอให้ฟอร์มเด้งขึ้นมาให้เสร็จก่อนค่อยจับยัดค่า
+            } 
+          });
+        }
           return Swal.fire("ไม่สามารถเบิกรถได้", res.error || "บันทึกข้อมูลไม่สำเร็จ", "error");
         }
         Swal.fire({ icon: 'success', title: 'บันทึกเริ่มงานสำเร็จ!', timer: 1800, showConfirmButton: true }).then(() => { if (liff.isInClient()) liff.closeWindow(); else resetScanState(); });
@@ -822,6 +846,30 @@
         Swal.fire({ icon: 'success', title: 'ลงทะเบียนสำเร็จ!', timer: 1800, showConfirmButton: false }).then(() => { window.location.reload(); });
       } catch (err) { btn.disabled = false; btn.innerHTML = 'ยืนยันการลงทะเบียน'; Swal.fire("ขัดข้อง", "ส่งข้อมูลไม่สำเร็จ: " + err.message, "error"); }
     }
+
+    // ⚡ ฟังก์ชันสำหรับสลับไปหน้าฟอร์ม พร้อมล็อกทะเบียนรถอัตโนมัติ
+  function goToRequestFormAndLockPlate(scannedPlateNumber) {
+  // 1. ซ่อนหน้าต่างเดิม (แก้ ID ให้ตรงกับหน้าจอของนายช่าง เช่น 'scanSection' หรือ 'mainMenu')
+  // document.getElementById('scanSection').style.display = 'none'; 
+  
+  // 2. เปิดหน้ายื่นแบบฟอร์มขอใช้รถ (แก้ ID ให้ตรงกับหน้าฟอร์มของนายช่าง)
+  // document.getElementById('requestFormSection').style.display = 'block';
+
+  // 3. ⚡ ค้นหา Dropdown ทะเบียนรถ และบังคับเลือกค่าตามที่สแกน
+  // ** ให้แก้คำว่า "carSelectId" เป็น ID ของ <select> ทะเบียนรถในฟอร์มของนายช่าง **
+  var selectObj = document.getElementById('carSelectId'); 
+  
+  if (selectObj && scannedPlateNumber) {
+    for (var i = 0; i < selectObj.options.length; i++) {
+      // ตรวจสอบว่าในตัวเลือกมีคำที่ตรงกับทะเบียนรถหรือไม่
+      if (selectObj.options[i].text.indexOf(scannedPlateNumber) !== -1 || selectObj.options[i].value === scannedPlateNumber) {
+        selectObj.selectedIndex = i; // บังคับเลือกรายการนี้
+        // selectObj.disabled = true; // (ถ้าอยากล็อกไม่ให้ผู้ใช้กดเปลี่ยนรถคันอื่นได้ ให้ลบ // บรรทัดนี้ออกครับ)
+        break;
+      }
+    }
+  }
+}
   </script>
 </body>
 </html>
