@@ -572,7 +572,27 @@
         const res = await fetchGAS("getVehicle", { carId: rawTarget });
         Swal.close();
         if (res.success && res.vehicle) {
-          currentScannedVehicle = res.vehicle; currentActiveLog = res.activeLog || null;
+          currentScannedVehicle = res.vehicle;
+          currentActiveLog = res.activeLog || null;
+
+          // ⚡ ตรวจสอบทันทีหลังสแกน: ถ้ารถพร้อมใช้งาน แต่ยังไม่มีใบขออนุมัติ
+          if (res.vehicle.status === "พร้อมใช้งาน" && res.bookingCheck && !res.bookingCheck.approved) {
+            return Swal.fire({
+              icon: 'warning',
+              title: 'ยังไม่ได้รับอนุมัติให้ใช้รถ',
+              text: '🚫 ' + res.bookingCheck.message,
+              showCancelButton: true,
+              confirmButtonText: 'ยื่นขออนุมัติทันที',
+              cancelButtonText: 'ปิด'
+            }).then((a) => {
+              if (a.isConfirmed) {
+                openRequestModal(res.vehicle);
+              } else {
+                resetScanState();
+              }
+            });
+          }
+
           showScannedVehicle(res.vehicle, res.activeLog);
         } else {
           Swal.fire("ไม่พบข้อมูล", res.error || "ไม่พบยานพาหนะนี้ในระบบ", "error");
