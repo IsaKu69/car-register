@@ -415,7 +415,7 @@
     };
 
     // =========================================================
-    // ⚡ หน้าพิจารณาอนุมัติ (ป้องกันการอนุมัติซ้ำจาก Flex Msg เดิม)
+    // ⚡ หน้าพิจารณาอนุมัติ (รองรับทางด่วนสำหรับหัวหน้าฝ่าย)
     // =========================================================
     async function loadApprovalPage(reqId, step) {
       try {
@@ -453,6 +453,18 @@
             });
           }
 
+          // ⚡ ปุ่มทางด่วน (แสดงเฉพาะหัวหน้าฝ่ายเท่านั้น)
+          let fastTrackButtonHtml = "";
+          if (step === "head") {
+            fastTrackButtonHtml = `
+              <div class="col-12 mt-2">
+                <button class="btn btn-warning w-100 py-2 fw-bold text-dark shadow-sm" id="btnFastTrack" onclick="submitApproval('${r.reqId}', 'อนุมัติด่วน', '${step}')">
+                  <i class="bi bi-lightning-charge-fill me-1 text-danger"></i> อนุมัติด่วน (จบงานทันที / ส่งธุรการ)
+                </button>
+              </div>
+            `;
+          }
+
           document.body.innerHTML = `
             <div class="card card-custom" style="max-width:480px; width:100%; margin:auto;">
               <div class="header-bar text-white p-3 text-center">
@@ -478,9 +490,10 @@
                   </div>
                   <div class="col-6">
                     <button class="btn btn-success w-100 py-2 fw-bold" id="btnApprove" onclick="submitApproval('${r.reqId}', 'อนุมัติ', '${step}')">
-                      <i class="bi bi-check-circle me-1"></i> อนุมัติ
+                      <i class="bi bi-check-circle me-1"></i> ${step === 'head' ? 'เสนอตามลำดับ' : 'อนุมัติ'}
                     </button>
                   </div>
+                  ${fastTrackButtonHtml}
                 </div>
               </div>
             </div>
@@ -491,6 +504,76 @@
       } catch (err) {
         document.getElementById("loading").style.display = "none";
         Swal.fire("ขัดข้อง", "ไม่สามารถดึงข้อมูลได้: " + err.message, "error");
+      }
+    }
+
+    // =========================================================
+    // 📝 ฟังก์ชันส่งผลการพิจารณา (submitApproval)
+    // =========================================================
+    async function submitApproval(reqId, decision, step) {
+      let confirmTitle = `ยืนยันการ${decision}?`;
+      let confirmText = `ต้องการดำเนินการบันทึกผลการพิจารณาคำขอนี้หรือไม่`;
+      let confirmButtonColor = "#198754";
+
+      if (decision === "ไม่อนุมัติ") {
+        confirmButtonColor = "#dc3545";
+      } else if (decision === "อนุมัติด่วน") {
+        confirmTitle = "ยืนยันอนุมัติด่วน (Fast-Track)?";
+        confirmText = "คำขอจะได้รับอนุมัติทันทีโดยไม่ผ่าน ผอ.ส่วน/สำนัก และระบบจะแจ้งเตือนเจ้าหน้าที่ธุรการให้พิมพ์เอกสาร";
+        confirmButtonColor = "#fd7e14";
+      }
+
+      const confirmResult = await Swal.fire({
+        title: confirmTitle,
+        text: confirmText,
+        icon: decision === "ไม่อนุมัติ" ? "warning" : "question",
+        showCancelButton: true,
+        confirmButtonColor: confirmButtonColor,
+        cancelButtonColor: "#6c757d",
+        confirmButtonText: "ยืนยัน",
+        cancelButtonText: "ยกเลิก"
+      });
+
+      if (!confirmResult.isConfirmed) return;
+
+      Swal.fire({
+        title: "กำลังประมวลผล...",
+        allowOutsideClick: false,
+        didOpen: () => { Swal.showLoading(); }
+      });
+
+      try {
+        const payload = {
+          action: "approveRequest",
+          reqId: reqId,
+          decision: decision,
+          step: step,
+          lineUid: (currentUser && currentUser.lineUid) ? currentUser.lineUid : ""
+        };
+
+        const res = await postGAS(payload);
+        Swal.close();
+
+        if (res.success) {
+          await Swal.fire({
+            icon: "success",
+            title: "ดำเนินการสำเร็จ",
+            text: res.message || `บันทึกผลการพิจารณา (${decision}) เรียบร้อยแล้ว`,
+            confirmButtonText: "ตกลง",
+            allowOutsideClick: false
+          });
+
+          if (typeof liff !== "undefined" && liff.isInClient()) {
+            liff.closeWindow();
+          } else {
+            location.reload();
+          }
+        } else {
+          Swal.fire("ไม่สามารถดำเนินการได้", res.error || "เกิดข้อผิดพลาดในการบันทึก", "error");
+        }
+      } catch (err) {
+        Swal.close();
+        Swal.fire("ขัดข้อง", "ไม่สามารถติดต่อระบบได้: " + err.message, "error");
       }
     }
 
