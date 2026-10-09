@@ -254,16 +254,14 @@
     let vehiclesDatabase = [];
     let isVehiclesReady = false;
 
-    // ⚡ ตัวแปรเก็บ UID แบบแยกอิสระ (หลีกเลี่ยง Error ไม่พบ LINE UID)
     let realLineUid = ""; 
     let liffReady = false;
 
-    // ⚡ ฟังก์ชันกลางส่ง POST (มีระบบ Retry 3 ครั้ง ป้องกันเน็ตมือถือสะดุด)
     async function postGAS(payload, retries = 3) {
       for (let i = 0; i < retries; i++) {
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000); // ตัดจบถ้าเกิน 10 วินาที
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
 
           const response = await fetch(GAS_URL, {
             method: "POST", 
@@ -282,12 +280,12 @@
             throw new Error("รูปแบบข้อมูลจากเซิร์ฟเวอร์ไม่ถูกต้อง");
           }
         } catch (err) {
-          if (i === retries - 1) { // ถ้าระบบลองครบ 3 ครั้งแล้วยังพัง
+          if (i === retries - 1) {
             if (err.name === 'AbortError') throw new Error("การเชื่อมต่อหมดเวลา (Timeout) กรุณาลองใหม่");
             throw err;
           }
           console.warn(`เน็ตสะดุด กำลังเชื่อมต่อใหม่ครั้งที่ ${i + 1}...`);
-          await new Promise(r => setTimeout(r, 1000)); // หน่วงเวลา 1 วิก่อนลองใหม่
+          await new Promise(r => setTimeout(r, 1000));
         }
       }
     }
@@ -322,7 +320,6 @@
       });
     }
 
-    // ⚡ ฟังก์ชันรอโหลดข้อมูล LINE สำหรับหน้าแอปปกติ (หน่วงเวลาสูงสุด 5 วิ)
     async function waitForLiffAndGetUid() {
       for (let i = 0; i < 15; i++) {
         if (liffReady && realLineUid) return realLineUid;
@@ -331,21 +328,21 @@
       return "PC-DESKTOP";
     }
 
-      window.onload = async () => {
+    window.onload = async () => {
       const urlParams = new URLSearchParams(window.location.search);
       let reqIdParam = urlParams.get('reqId');
+      let stepParam = urlParams.get('step') || "";
 
-      // ⚡ แก้บั๊ก LIFF ซ่อน URL (ค้นหา reqId จากตัวแปร liff.state ถ้าถูกซ่อนไว้)
       const liffState = urlParams.get('liff.state');
       if (!reqIdParam && liffState) {
         const stateStr = liffState.startsWith('?') ? liffState : '?' + liffState;
         const stateParams = new URLSearchParams(stateStr);
         if (stateParams.get('reqId')) {
           reqIdParam = stateParams.get('reqId');
+          stepParam = stateParams.get('step') || "";
         }
       }
 
-      // 1. สั่งรัน LIFF แอบไว้เบื้องหลัง (ไม่ต้องบล็อกหน้าจอ)
       liff.init({ liffId: LIFF_ID }).then(async () => {
         liffReady = true;
         if (liff.isLoggedIn() || liff.isInClient()) {
@@ -356,13 +353,14 @@
         }
       }).catch(err => { liffReady = true; realLineUid = "PC-DESKTOP"; });
 
-      // 2. โหมดผู้บริหาร: โหลดหน้าพิจารณาปุ๊บ... ดึงข้อมูลปั๊บ (เจาะทะลุ LIFF)
+      // โหมดผู้บริหาร: เปิดผ่าน Flex Message
       if (reqIdParam) {
         document.getElementById("loadingText").innerHTML = 'กำลังดึงข้อมูลคำขอ...<br><small class="text-secondary" style="font-size: 0.8rem;">(รอสักครู่ หากเน็ตช้าระบบจะเชื่อมต่อให้ใหม่)</small>';
-        await loadApprovalPage(reqIdParam);
-        return; // ตัดจบ
+        await loadApprovalPage(reqIdParam, stepParam);
+        return;
       }
-      // โหมดหน้าแอปปกติ (ต้องรอข้อมูลประจำตัวจาก LIFF)
+
+      // โหมดหน้าแอปปกติ
       const currentLineUid = await waitForLiffAndGetUid();
       document.getElementById("lineUid").value = currentLineUid;
       
@@ -415,9 +413,9 @@
     };
 
     // =========================================================
-    // ⚡ หน้าพิจารณาอนุมัติ (แยกโหลด 2 จังหวะ: โชว์ข้อมูลไว, อนุมัติชัวร์)
+    // ⚡ หน้าพิจารณาอนุมัติ (ป้องกันการอนุมัติซ้ำจาก Flex Msg เดิม)
     // =========================================================
-    async function loadApprovalPage(reqId) {
+    async function loadApprovalPage(reqId, step) {
       try {
         const res = await postGAS({ 
           action: "getRequestDetail", 
@@ -430,20 +428,27 @@
         if (res.success && res.request) {
           const r = res.request;
           
-          // 🛑 ดักจับทันที: ถ้าสถานะไม่ใช่ "รอ..." ที่ยังค้างอยู่ ให้ล็อกและเตือนทันที
-          const isFinished = (r.status === "อนุมัติแล้ว" || r.status === "ไม่อนุมัติ");
-          
-          if (isFinished) {
+          // 🛑 ตรวจสอบว่า Flex เดิมนี้ดำเนินการผ่านขั้นตอนนี้ไปแล้วหรือไม่
+          let alreadyProcessed = false;
+          if (r.status === "อนุมัติแล้ว" || r.status === "ไม่อนุมัติ") {
+            alreadyProcessed = true;
+          } else if (step === "head" && r.status !== "รอหัวหน้าฝ่ายอนุมัติ") {
+            alreadyProcessed = true;
+          } else if (step === "div" && r.status !== "รอ ผอ.ส่วน อนุมัติ") {
+            alreadyProcessed = true;
+          } else if (step === "bur" && r.status !== "รอ ผอ.สำนัก อนุมัติ") {
+            alreadyProcessed = true;
+          }
+
+          if (alreadyProcessed) {
             return Swal.fire({
-              icon: r.status === "อนุมัติแล้ว" ? 'success' : 'error',
-              title: 'รายการนี้ดำเนินการไปแล้ว',
-              html: `คำขอรหัส <b>${r.reqId}</b><br>มีสถานะ: <span class="badge ${r.status === 'อนุมัติแล้ว' ? 'bg-success' : 'bg-danger'}">${r.status}</span> เรียบร้อยแล้ว`,
+              icon: 'info',
+              title: 'ดำเนินการไปแล้ว',
+              html: `คำขอนี้ได้รับการพิจารณาในขั้นตอนนี้เรียบร้อยแล้ว<br>(สถานะปัจจุบัน: <b>${r.status}</b>)`,
               confirmButtonText: 'ปิดหน้าต่าง',
               allowOutsideClick: false
             }).then(() => {
-              if (typeof liff !== "undefined" && liff.isInClient()) {
-                liff.closeWindow(); // ปิดหน้าต่าง LINE ทันที ไม่ให้ค้างหน้าจอไว้
-              }
+              if (typeof liff !== "undefined" && liff.isInClient()) liff.closeWindow();
             });
           }
 
@@ -466,12 +471,12 @@
                 </ul>
                 <div class="row g-2">
                   <div class="col-6">
-                    <button class="btn btn-danger w-100 py-2 fw-bold" id="btnReject" onclick="submitApproval('${r.reqId}', 'ไม่อนุมัติ')">
+                    <button class="btn btn-danger w-100 py-2 fw-bold" id="btnReject" onclick="submitApproval('${r.reqId}', 'ไม่อนุมัติ', '${step}')">
                       <i class="bi bi-x-circle me-1"></i> ไม่อนุมัติ
                     </button>
                   </div>
                   <div class="col-6">
-                    <button class="btn btn-success w-100 py-2 fw-bold" id="btnApprove" onclick="submitApproval('${r.reqId}', 'อนุมัติ')">
+                    <button class="btn btn-success w-100 py-2 fw-bold" id="btnApprove" onclick="submitApproval('${r.reqId}', 'อนุมัติ', '${step}')">
                       <i class="bi bi-check-circle me-1"></i> อนุมัติ
                     </button>
                   </div>
@@ -488,8 +493,7 @@
       }
     }
 
-    async function submitApproval(reqId, decision) {
-      // ⚡ ก่อนส่งอนุมัติ เช็กให้ชัวร์ว่า LIFF โหลดเสร็จและได้ UID ผู้บริหารแล้ว
+    async function submitApproval(reqId, decision, step) {
       if (!realLineUid) {
         Swal.fire({ title: 'กำลังเชื่อมต่อ LINE...', text: 'กรุณารอสักครู่', didOpen: () => Swal.showLoading() });
         for(let i = 0; i < 12; i++) {
@@ -506,13 +510,19 @@
         showCancelButton: true, confirmButtonText: "ยืนยัน", cancelButtonText: "ยกเลิก"
       }).then(async (result) => {
         if (result.isConfirmed) {
+          const btnApprove = document.getElementById("btnApprove");
+          const btnReject = document.getElementById("btnReject");
+          if (btnApprove) btnApprove.disabled = true;
+          if (btnReject) btnReject.disabled = true;
+
           Swal.fire({ title: 'กำลังประมวลผล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
           try {
             const res = await postGAS({
               action: "approveRequest",
               reqId: reqId,
               decision: decision,
-              lineUid: realLineUid // ⚡ โยน UID จริงของผู้บริหารไปทำรายการ
+              step: step,
+              lineUid: realLineUid
             });
 
             if (res.success) {
@@ -522,9 +532,13 @@
                   else window.location.href = window.location.pathname; 
                 });
             } else {
-              Swal.fire("ผิดพลาด", res.error, "error");
+              if (btnApprove) btnApprove.disabled = false;
+              if (btnReject) btnReject.disabled = false;
+              Swal.fire("แจ้งเตือน", res.error, "warning");
             }
           } catch (e) {
+            if (btnApprove) btnApprove.disabled = false;
+            if (btnReject) btnReject.disabled = false;
             Swal.fire("ขัดข้อง", e.toString(), "error");
           }
         }
@@ -532,7 +546,7 @@
     }
 
     // =========================================================
-    // 📷 การสแกน ค้นหา และส่วนอื่นๆ คงเดิม
+    // 📷 การสแกน ค้นหา และเช็กใบอนุมัติทันที
     // =========================================================
     async function triggerScan() {
       if (liff.scanCodeV2) {
@@ -549,7 +563,7 @@
       lookupCar(val);
     }
 
-async function lookupCar(carKey) {
+    async function lookupCar(carKey) {
       let rawTarget = String(carKey || "").trim();
       if (!rawTarget) return;
 
@@ -569,7 +583,7 @@ async function lookupCar(carKey) {
           currentScannedVehicle = res.vehicle;
           currentActiveLog = res.activeLog || null;
 
-          // ⚡ ตรวจสอบทันทีหลังสแกน: ถ้ารถพร้อมใช้งาน แต่ยังไม่มีใบขออนุมัติ
+          // ⚡ ตรวจสอบทันทีหลังสแกน: ถ้ารถพร้อมใช้งาน แต่ยังไม่มีใบขออนุมัติ ให้เตือนทันที
           if (res.vehicle.status === "พร้อมใช้งาน" && res.bookingCheck && !res.bookingCheck.approved) {
             return Swal.fire({
               icon: 'error',
@@ -717,7 +731,6 @@ async function lookupCar(carKey) {
               cancelButtonText: 'ปิด' 
             }).then((a) => { 
               if (a.isConfirmed) {
-                // ⚡ โยนข้อมูลรถที่สแกนไปให้ฟังก์ชันเปิดหน้าต่างจัดการต่อทีเดียวจบ
                 openRequestModal(currentScannedVehicle); 
               } 
             });
@@ -758,7 +771,6 @@ async function lookupCar(carKey) {
       const select = document.getElementById("reqSelectCar");
       select.innerHTML = '<option value="">-- กรุณาเลือกรถ --</option>';
       
-      // ดึง ID และ ทะเบียนรถ ที่รับค่ามาเตรียมไว้เปรียบเทียบ
       let targetCarId = prefillVehicle ? (prefillVehicle.carId || "") : "";
       let targetPlate = prefillVehicle ? (prefillVehicle.plateNumber || "") : "";
 
@@ -769,7 +781,6 @@ async function lookupCar(carKey) {
           opt.value = JSON.stringify({ carId: v.carId, plateNumber: v.plateNumber }); 
           opt.textContent = `${v.plateNumber} (${v.brandModel || v.type})`;
           
-          // ⚡ ไฮไลต์สำคัญ: ถ้า ID รถ หรือ ป้ายทะเบียน ตรงกับคันที่สแกนมา ให้จับล็อก (Selected) ทันที
           if (prefillVehicle && (v.carId === targetCarId || v.plateNumber === targetPlate)) {
             opt.selected = true;
           }
