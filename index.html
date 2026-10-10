@@ -259,11 +259,15 @@
     let realLineUid = ""; 
     let liffReady = false;
 
-    async function postGAS(payload, retries = 3) {
+    // =========================================================
+    // ⚡ ฟังก์ชันส่งข้อมูลไปยัง Google Apps Script (เสถียร ไม่ยิงซ้ำ)
+    // =========================================================
+    async function postGAS(payload, retries = 1) {
       for (let i = 0; i < retries; i++) {
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000);
+          // เพิ่มเวลา Timeout เป็น 25 วินาที รองรับการบันทึกชีตและส่ง LINE
+          const timeoutId = setTimeout(() => controller.abort(), 25000);
 
           const response = await fetch(GAS_URL, {
             method: "POST", 
@@ -283,10 +287,9 @@
           }
         } catch (err) {
           if (i === retries - 1) {
-            if (err.name === 'AbortError') throw new Error("การเชื่อมต่อหมดเวลา (Timeout) กรุณาลองใหม่");
+            if (err.name === 'AbortError') throw new Error("การเชื่อมต่อหมดเวลา (Timeout) กรุณาตรวจสอบสัญญาณอินเทอร์เน็ตแล้วลองใหม่");
             throw err;
           }
-          console.warn(`เน็ตสะดุด กำลังเชื่อมต่อใหม่ครั้งที่ ${i + 1}...`);
           await new Promise(r => setTimeout(r, 1000));
         }
       }
@@ -939,6 +942,9 @@
       new bootstrap.Modal(document.getElementById('requestVehicleModal')).show();
     }
 
+    // =========================================================
+    // 📝 ฟังก์ชันส่งแบบขออนุมัติใช้รถ (ล็อกปุ่ม ป้องกันส่งซ้ำ 100%)
+    // =========================================================
     async function submitOnlineRequest(e) {
       e.preventDefault();
       if (!currentUser) return;
@@ -951,18 +957,44 @@
       const purpose = document.getElementById("reqPurpose").value.trim();
 
       const btn = document.getElementById("btnSubmitReq");
-      btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>กำลังส่งคำขอ...';
+      btn.disabled = true; 
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>กำลังส่งคำขอ...';
 
-      const payload = { action: "requestVehicle", carId: selectedCar.carId, plateNumber: selectedCar.plateNumber, driverUid: currentUser.lineUid, driverName: currentUser.fullname, startDate: startDate, endDate: endDate, purpose: purpose };
+      const payload = { 
+        action: "requestVehicle", 
+        carId: selectedCar.carId, 
+        plateNumber: selectedCar.plateNumber, 
+        driverUid: currentUser.lineUid, 
+        driverName: currentUser.fullname, 
+        startDate: startDate, 
+        endDate: endDate, 
+        purpose: purpose 
+      };
+
       try {
-        const res = await postGAS(payload);
-        btn.disabled = false; btn.innerHTML = '<i class="bi bi-send-fill me-1"></i> ส่งแบบขออนุมัติ';
+        // ส่งแค่รอบเดียว (retries = 1) ป้องกันข้อความเด้งซ้ำ 3 ครั้ง
+        const res = await postGAS(payload, 1);
+        
+        btn.disabled = false; 
+        btn.innerHTML = '<i class="bi bi-send-fill me-1"></i> ส่งแบบขออนุมัติ';
+
         if (res.success) {
           bootstrap.Modal.getInstance(document.getElementById('requestVehicleModal')).hide();
-          Swal.fire({ icon: 'success', title: 'ยื่นคำขออนุมัติสำเร็จ!', html: `รหัสคำขอ: <b>${res.reqId}</b>`, confirmButtonText: 'ตกลง' });
+          Swal.fire({ 
+            icon: 'success', 
+            title: 'ยื่นคำขออนุมัติสำเร็จ!', 
+            html: `รหัสคำขอ: <b>${res.reqId}</b><br><small class="text-muted">ระบบได้แจ้งเตือนหัวหน้าฝ่ายเรียบร้อยแล้ว</small>`, 
+            confirmButtonText: 'ตกลง' 
+          });
           document.getElementById("onlineRequestForm").reset();
-        } else { Swal.fire("เกิดข้อผิดพลาด", res.error || "ไม่สามารถส่งคำขอได้", "error"); }
-      } catch (err) { btn.disabled = false; btn.innerHTML = 'ส่งแบบขออนุมัติ'; Swal.fire("ขัดข้อง", "ส่งข้อมูลไม่สำเร็จ: " + err.message, "error"); }
+        } else { 
+          Swal.fire("เกิดข้อผิดพลาด", res.error || "ไม่สามารถส่งคำขอได้", "error"); 
+        }
+      } catch (err) { 
+        btn.disabled = false; 
+        btn.innerHTML = '<i class="bi bi-send-fill me-1"></i> ส่งแบบขออนุมัติ'; 
+        Swal.fire("ขัดข้อง", "ส่งข้อมูลไม่สำเร็จ: " + err.message, "error"); 
+      }
     }
 
     async function loadPreloadedRoster() {
